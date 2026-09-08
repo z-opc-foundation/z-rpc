@@ -13,10 +13,37 @@
 
     <artifactId>z-rpc</artifactId>
     <packaging>pom</packaging>
+    <name>z-rpc</name>
+    <description>Z-RPC: A high-performance Java RPC framework integrating Dubbo/SOFA-RPC/gRPC best practices.</description>
 
     <modules>
+        <!-- 基础层 -->
+        <module>z-rpc-common</module>
+        <module>z-rpc-spi</module>
+        <module>z-rpc-api</module>
+
+        <!-- 协议与序列化 -->
+        <module>z-rpc-serialize</module>
+        <module>z-rpc-protocol</module>
+        <module>z-rpc-remoting</module>
+
+        <!-- 治理层 -->
+        <module>z-rpc-registry</module>
+        <module>z-rpc-cluster</module>
+        <module>z-rpc-filter</module>
+
+        <!-- 扩展层 -->
+        <module>z-rpc-mock</module>
+        <module>z-rpc-metrics</module>
+        <module>z-rpc-async</module>
+
+        <!-- 聚合与集成 -->
         <module>z-rpc-core</module>
-        <!-- z-rpc-spring-boot-starter 已迁移到 z-boot/z-boot-integration-starters -->
+        <module>z-rpc-spring-boot-starter</module>
+
+        <!-- 示例与控制台 -->
+        <module>z-rpc-examples</module>
+        <module>z-rpc-admin</module>
     </modules>
 
     <properties>
@@ -25,23 +52,139 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <reversion>1.0.0-SNAPSHOT</reversion>
         <compile.version>8</compile.version>
+
+        <!-- 内部依赖版本 -->
+        <z-rpc.version>1.0.0-SNAPSHOT</z-rpc.version>
+        <util.version>1.0.2-SNAPSHOT</util.version>
+        <netty.version>4.1.66.Final</netty.version>
+        <hessian.version>4.0.66</hessian.version>
+        <kryo.version>5.5.0</kryo.version>
+        <protobuf.version>3.25.5</protobuf.version>
+        <spring-boot.version>2.7.18</spring-boot.version>
+        <log4j.version>2.17.2</log4j.version>
+        <slf4j.version>1.7.36</slf4j.version>
+        <junit.version>5.8.2</junit.version>
     </properties>
-
-    <dependencies>
-
-    </dependencies>
 
     <dependencyManagement>
         <dependencies>
+            <!-- 内部模块 -->
             <dependency>
                 <groupId>com.zifang</groupId>
-                <artifactId>util-core</artifactId>
-                <version>1.0.2-SNAPSHOT</version>
+                <artifactId>z-rpc-common</artifactId>
+                <version>${z-rpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.zifang</groupId>
+                <artifactId>z-rpc-spi</artifactId>
+                <version>${z-rpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.zifang</groupId>
+                <artifactId>z-rpc-api</artifactId>
+                <version>${z-rpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.zifang</groupId>
+                <artifactId>z-rpc-serialize</artifactId>
+                <version>${z-rpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.zifang</groupId>
+                <artifactId>z-rpc-protocol</artifactId>
+                <version>${z-rpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.zifang</groupId>
+                <artifactId>z-rpc-remoting</artifactId>
+                <version>${z-rpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.zifang</groupId>
+                <artifactId>z-rpc-registry</artifactId>
+                <version>${z-rpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.zifang</groupId>
+                <artifactId>z-rpc-cluster</artifactId>
+                <version>${z-rpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.zifang</groupId>
+                <artifactId>z-rpc-filter</artifactId>
+                <version>${z-rpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.zifang</groupId>
+                <artifactId>z-rpc-mock</artifactId>
+                <version>${z-rpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.zifang</groupId>
+                <artifactId>z-rpc-metrics</artifactId>
+                <version>${z-rpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.zifang</groupId>
+                <artifactId>z-rpc-async</artifactId>
+                <version>${z-rpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.zifang</groupId>
+                <artifactId>z-rpc-core</artifactId>
+                <version>${z-rpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.zifang</groupId>
+                <artifactId>z-rpc-admin</artifactId>
+                <version>${z-rpc.version}</version>
+            </dependency>
+
+            <!-- 第三方 -->
+            <dependency>
+                <groupId>io.github.yuku123</groupId>
+                <artifactId>z-util-core</artifactId>
+                <version>${util.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-all</artifactId>
-                <version>4.1.66.Final</version>
+                <version>${netty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.caucho</groupId>
+                <artifactId>hessian</artifactId>
+                <version>${hessian.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.esotericsoftware</groupId>
+                <artifactId>kryo</artifactId>
+                <version>${kryo.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.protobuf</groupId>
+                <artifactId>protobuf-java</artifactId>
+                <version>${protobuf.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-api</artifactId>
+                <version>${log4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-core</artifactId>
+                <version>${log4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-api</artifactId>
+                <version>${slf4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.junit.jupiter</groupId>
+                <artifactId>junit-jupiter</artifactId>
+                <version>${junit.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -57,13 +200,11 @@
                     <target>${compile.version}</target>
                 </configuration>
             </plugin>
-
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-deploy-plugin</artifactId>
                 <version>3.1.2</version>
             </plugin>
-
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>versions-maven-plugin</artifactId>
@@ -74,5 +215,4 @@
             </plugin>
         </plugins>
     </build>
-
 </project>

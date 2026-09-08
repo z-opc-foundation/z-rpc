@@ -5,13 +5,18 @@ import com.zifang.z.rpc.cluster.FailoverCluster;
 import com.zifang.z.rpc.cluster.RegistryDirectory;
 import com.zifang.z.rpc.common.URL;
 import com.zifang.z.rpc.invoke.Invoker;
-import com.zifang.z.rpc.proxy.ProxyFactory;
+import com.zifang.z.rpc.invoke.Invocation;
+import com.zifang.z.rpc.invoke.Result;
+import com.zifang.z.rpc.api.JdkProxyFactory;
+import com.zifang.z.rpc.api.ProxyFactory;
 import com.zifang.z.rpc.registry.RegistryService;
 import com.zifang.z.rpc.registry.ZConfigRegistry;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.InetAddress;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -67,6 +72,12 @@ public class ReferenceConfig<T> {
      * 集群容错策略
      */
     private String cluster = "failover";
+
+    /**
+     * 直连服务地址列表（绕过注册中心）
+     * 例如 "zrpc://192.168.1.10:20880" 或多个以分号分隔
+     */
+    private String url;
 
     // ========== 内部状态 ==========
     /**
@@ -180,8 +191,12 @@ public class ReferenceConfig<T> {
     }
 
     private void connectRegistry() {
+        if (url != null && !url.isEmpty()) {
+            log.info("Reference using direct URL mode (bypass registry): {}", url);
+            return;
+        }
         if (registry == null || registry.isEmpty()) {
-            throw new IllegalStateException("Registry address is required");
+            throw new IllegalStateException("Registry address is required (or set direct url)");
         }
 
         registryService = new ZConfigRegistry(registry);
@@ -197,8 +212,8 @@ public class ReferenceConfig<T> {
         clusterInvoker = cluster.join(directory);
 
         // 创建代理
-        ProxyFactory proxyFactory = new ProxyFactory();
-        ref = proxyFactory.getProxy(interfaceClass, clusterInvoker);
+        ProxyFactory proxyFactory = new JdkProxyFactory();
+        ref = proxyFactory.getProxy(clusterInvoker);
 
         log.info("Service proxy created: {}", interfaceName);
     }
@@ -217,7 +232,59 @@ public class ReferenceConfig<T> {
         consumerUrl.addParameter("cluster", cluster);
         consumerUrl.addParameter("side", "consumer");
 
+        // 直连模式：跳过注册中心
+        if (url != null && !url.isEmpty()) {
+            return new com.zifang.z.rpc.cluster.StaticDirectory<>(interfaceClass, consumerUrl, parseDirectUrls());
+        }
+
         return new RegistryDirectory<>(interfaceClass, consumerUrl, registryService);
+    }
+
+    /**
+     * 解析直连 URL 列表（以分号分隔），如：
+     * "zrpc://192.168.1.10:20880;zrpc://192.168.1.11:20880"
+     */
+    private List<Invoker<T>> parseDirectUrls() {
+        List<Invoker<T>> invokers = new ArrayList<>();
+        if (url == null || url.isEmpty()) {
+            return invokers;
+        }
+        String[] urls = url.split(";");
+        for (String u : urls) {
+            if (u == null || u.trim().isEmpty()) continue;
+            URL providerUrl = URL.valueOf(u.trim());
+            providerUrl.setServiceInterface(interfaceName);
+            providerUrl.setGroup(group);
+            providerUrl.setVersion(version);
+            providerUrl.addParameter("timeout", String.valueOf(timeout));
+            providerUrl.addParameter("side", "provider");
+
+            // 直连 Invoker：通过 Netty 客户端发起 RPC 调用
+            final URL finalUrl = providerUrl;
+            Invoker<T> invoker = new Invoker<T>() {
+                @Override
+                public Class<T> getInterface() { return interfaceClass; }
+                @Override
+                public Result invoke(Invocation invocation) throws Throwable {
+                    // 解析实际地址
+                    String host = finalUrl.getHost();
+                    int port = finalUrl.getPort();
+                    log.info("[DirectMode] Invoking {} -> {}:{}", invocation.getMethodName(), host, port);
+                    // 通过 Netty 客户端调用
+                    com.zifang.z.rpc.remoting.RpcClient client =
+                            com.zifang.z.rpc.remoting.RpcClientHolder.get(host, port);
+                    return client.invoke(invocation, finalUrl);
+                }
+                @Override
+                public URL getUrl() { return finalUrl; }
+                @Override
+                public boolean isAvailable() { return true; }
+                @Override
+                public void destroy() {}
+            };
+            invokers.add(invoker);
+        }
+        return invokers;
     }
 
     private String getLocalHost() {
@@ -302,6 +369,14 @@ public class ReferenceConfig<T> {
 
     public void setRegistry(String registry) {
         this.registry = registry;
+    }
+
+    public String getUrl() {
+        return url;
+    }
+
+    public void setUrl(String url) {
+        this.url = url;
     }
 
     public boolean isInitialized() {

@@ -1,0 +1,3 @@
+random=com.zifang.z.rpc.loadbalance.RandomLoadBalance
+roundrobin=com.zifang.z.rpc.loadbalance.RoundRobinLoadBalance
+leastactive=com.zifang.z.rpc.loadbalance.LeastActiveLoadBalance

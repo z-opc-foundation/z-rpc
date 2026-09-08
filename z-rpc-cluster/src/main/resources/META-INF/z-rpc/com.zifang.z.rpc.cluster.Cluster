@@ -1,0 +1,5 @@
+failover=com.zifang.z.rpc.cluster.FailoverCluster
+failfast=com.zifang.z.rpc.cluster.FailfastCluster
+failsafe=com.zifang.z.rpc.cluster.FailsafeCluster
+failback=com.zifang.z.rpc.cluster.FailbackCluster
+broadcast=com.zifang.z.rpc.cluster.BroadcastCluster

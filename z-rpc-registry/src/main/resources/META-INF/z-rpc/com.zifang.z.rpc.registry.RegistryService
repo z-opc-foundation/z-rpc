@@ -1,0 +1,3 @@
+z-config=com.zifang.z.rpc.registry.ZConfigRegistry
+in-memory=com.zifang.z.rpc.registry.InMemoryRpcRegistry
+zknaming=com.zifang.z.rpc.registry.ZkNamingRpcRegistry
