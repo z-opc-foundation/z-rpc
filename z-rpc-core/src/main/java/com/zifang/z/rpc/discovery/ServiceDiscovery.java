@@ -52,7 +52,9 @@ public class ServiceDiscovery {
      * 订阅服务变更 (首次调用会立刻拉一次).
      */
     public synchronized void subscribe(String serviceName) {
-        if (subscriptions.containsKey(serviceName)) return;
+        if (subscriptions.containsKey(serviceName)) {
+            return;
+        }
         ConcurrentHashMap<String, ServiceInstance> bucket = cache.computeIfAbsent(
                 serviceName, k -> new ConcurrentHashMap<>());
 
@@ -92,7 +94,9 @@ public class ServiceDiscovery {
      */
     public void unsubscribe(String serviceName) {
         RpcRegistry.Subscription sub = subscriptions.remove(serviceName);
-        if (sub != null) registry.unsubscribe(serviceName, sub);
+        if (sub != null) {
+            registry.unsubscribe(serviceName, sub);
+        }
         cache.remove(serviceName);
     }
 
@@ -101,7 +105,9 @@ public class ServiceDiscovery {
      */
     public List<ServiceInstance> instances(String serviceName) {
         ConcurrentHashMap<String, ServiceInstance> bucket = cache.get(serviceName);
-        if (bucket == null || bucket.isEmpty()) return Collections.emptyList();
+        if (bucket == null || bucket.isEmpty()) {
+            return Collections.emptyList();
+        }
         return new ArrayList<>(bucket.values());
     }
 

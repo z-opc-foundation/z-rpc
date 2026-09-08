@@ -11,7 +11,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class RandomInstanceLoadBalancer implements InstanceLoadBalancer {
     @Override
     public ServiceInstance select(List<ServiceInstance> instances) {
-        if (instances == null || instances.isEmpty()) return null;
+        if (instances == null || instances.isEmpty()) {
+            return null;
+        }
         return instances.get((int) (Math.random() * instances.size()));
     }
     @Override public String getName() { return "random"; }

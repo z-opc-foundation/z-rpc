@@ -119,9 +119,13 @@ public class ZkNamingRpcRegistry implements RpcRegistry {
 
     @Override
     public void unsubscribe(String serviceName, Subscription subscription) {
-        if (subscription == null) return;
+        if (subscription == null) {
+            return;
+        }
         List<Subscription> list = subscribers.get(serviceName);
-        if (list != null) list.remove(subscription);
+        if (list != null) {
+            list.remove(subscription);
+        }
         if (subscription instanceof ZkSub) {
             try {
                 namingService.removeListener(serviceName, ((ZkSub) subscription).toZkListener());
@@ -142,10 +146,14 @@ public class ZkNamingRpcRegistry implements RpcRegistry {
     /** ZNamingInstance → ServiceInstance (过滤掉 enabled=false / healthy=false). */
     private static List<ServiceInstance> toServiceInstances(String serviceName,
                                                             List<com.zifang.z.config.common.model.ZNamingInstance> z) {
-        if (z == null || z.isEmpty()) return java.util.Collections.emptyList();
+        if (z == null || z.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
         List<ServiceInstance> out = new ArrayList<>(z.size());
         for (com.zifang.z.config.common.model.ZNamingInstance zi : z) {
-            if (zi == null || Boolean.FALSE.equals(zi.getEnabled())) continue;
+            if (zi == null || Boolean.FALSE.equals(zi.getEnabled())) {
+                continue;
+            }
             ServiceInstance si = new ServiceInstance();
             si.setServiceName(serviceName);
             si.setInstanceId(zi.getInstanceId() == null ? (zi.getIp() + ":" + zi.getPort()) : zi.getInstanceId());

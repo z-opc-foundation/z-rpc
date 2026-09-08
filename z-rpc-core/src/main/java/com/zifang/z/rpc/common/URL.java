@@ -250,7 +250,9 @@ public class URL implements Serializable {
             sb.append("?");
             boolean first = true;
             for (Map.Entry<String, String> entry : parameters.entrySet()) {
-                if (!first) sb.append("&");
+                if (!first) {
+                    sb.append("&");
+                }
                 sb.append(entry.getKey()).append("=").append(entry.getValue());
                 first = false;
             }

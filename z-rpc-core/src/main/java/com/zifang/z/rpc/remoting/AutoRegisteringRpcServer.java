@@ -94,8 +94,12 @@ public class AutoRegisteringRpcServer extends RpcServer {
     @Override
     public void stop() {
         try {
-            if (heartbeat != null) heartbeat.shutdownNow();
-        } catch (Exception ignore) {}
+            if (heartbeat != null) {
+                heartbeat.shutdownNow();
+            }
+        } catch (Exception ignore) {
+
+        }
         try {
             registry.deregister(instance.getServiceName(), instance.getInstanceId());
         } catch (Exception ex) {

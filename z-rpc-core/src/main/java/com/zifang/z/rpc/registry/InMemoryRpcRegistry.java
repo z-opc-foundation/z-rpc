@@ -100,7 +100,9 @@ public class InMemoryRpcRegistry implements RpcRegistry {
     @Override
     public void deregister(String serviceName, String instanceId) {
         Map<String, Internal> inner = table.get(serviceName);
-        if (inner == null) return;
+        if (inner == null) {
+            return;
+        }
         Internal removed = inner.remove(instanceId);
         if (removed != null) {
             publish(serviceName, new RegistryEvent(
@@ -114,9 +116,13 @@ public class InMemoryRpcRegistry implements RpcRegistry {
     @Override
     public long heartbeat(String serviceName, String instanceId) {
         Map<String, Internal> inner = table.get(serviceName);
-        if (inner == null) return -1L;
+        if (inner == null) {
+            return -1L;
+        }
         Internal rec = inner.get(instanceId);
-        if (rec == null) return -1L;
+        if (rec == null) {
+            return -1L;
+        }
         rec.beat(System.currentTimeMillis());
         return heartbeatIntervalSec;
     }
@@ -126,7 +132,9 @@ public class InMemoryRpcRegistry implements RpcRegistry {
         Map<String, Internal> inner = table.get(serviceName);
         if (inner == null || inner.isEmpty()) return Collections.emptyList();
         List<ServiceInstance> out = new ArrayList<>(inner.size());
-        for (Internal r : inner.values()) out.add(r.instance);
+        for (Internal r : inner.values()) {
+            out.add(r.instance);
+        }
         return out;
     }
 
@@ -152,14 +160,20 @@ public class InMemoryRpcRegistry implements RpcRegistry {
 
     @Override
     public void unsubscribe(String serviceName, Subscription subscription) {
-        if (subscription == null) return;
+        if (subscription == null) {
+            return;
+        }
         List<Subscription> list = subscribers.get(serviceName);
-        if (list != null) list.remove(subscription);
+        if (list != null) {
+            list.remove(subscription);
+        }
     }
 
     @Override
     public void close() {
-        if (closed) return;
+        if (closed) {
+            return;
+        }
         closed = true;
         scanner.shutdownNow();
         subscribers.clear();
@@ -169,7 +183,9 @@ public class InMemoryRpcRegistry implements RpcRegistry {
 
     /** 后台扫描: 超时实例标 unhealthy 并触发 DEREGISTER 推送. */
     private void scanExpired() {
-        if (closed) return;
+        if (closed) {
+            return;
+        }
         long now = System.currentTimeMillis();
         for (Map.Entry<String, Map<String, Internal>> e : table.entrySet()) {
             String serviceName = e.getKey();
@@ -194,7 +210,9 @@ public class InMemoryRpcRegistry implements RpcRegistry {
     /** 是否健康（test helper, 不在接口） */
     public boolean isHealthy(String serviceName, String instanceId) {
         Map<String, Internal> inner = table.get(serviceName);
-        if (inner == null) return false;
+        if (inner == null) {
+            return false;
+        }
         Internal r = inner.get(instanceId);
         return r != null && r.healthy;
     }
@@ -210,7 +228,9 @@ public class InMemoryRpcRegistry implements RpcRegistry {
         log.debug("publish event #{} {} {}/{}", seq, ev.getType(), serviceName,
                 ev.getInstance() != null ? ev.getInstance().getInstanceId() : "<snapshot>");
         List<Subscription> list = subscribers.get(serviceName);
-        if (list == null) return;
+        if (list == null) {
+            return;
+        }
         for (Subscription sub : list) {
             try {
                 sub.listener().accept(ev);

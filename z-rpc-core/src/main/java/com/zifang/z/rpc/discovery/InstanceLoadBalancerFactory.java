@@ -6,7 +6,9 @@ package com.zifang.z.rpc.discovery;
 public final class InstanceLoadBalancerFactory {
     private InstanceLoadBalancerFactory() {}
     public static InstanceLoadBalancer create(String name) {
-        if (name == null) return new WeightRoundRobinLoadBalancer();
+        if (name == null) {
+            return new WeightRoundRobinLoadBalancer();
+        }
         switch (name.toLowerCase()) {
             case "random":     return new RandomInstanceLoadBalancer();
             case "round-robin":

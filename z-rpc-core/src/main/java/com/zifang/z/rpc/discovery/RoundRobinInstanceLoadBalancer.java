@@ -12,7 +12,9 @@ public class RoundRobinInstanceLoadBalancer implements InstanceLoadBalancer {
     private final AtomicLong idx = new AtomicLong();
     @Override
     public ServiceInstance select(List<ServiceInstance> instances) {
-        if (instances == null || instances.isEmpty()) return null;
+        if (instances == null || instances.isEmpty()) {
+            return null;
+        }
         long i = Math.floorMod(idx.getAndIncrement(), instances.size());
         return instances.get((int) i);
     }

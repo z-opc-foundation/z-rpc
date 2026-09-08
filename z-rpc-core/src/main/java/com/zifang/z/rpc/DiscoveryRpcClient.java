@@ -75,9 +75,15 @@ public class DiscoveryRpcClient implements AutoCloseable {
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
             String name = method.getName();
-            if ("hashCode".equals(name)) return System.identityHashCode(proxy);
-            if ("toString".equals(name)) return "Proxy[" + serviceName + "]";
-            if ("equals".equals(name)) return proxy == args[0];
+            if ("hashCode".equals(name)) {
+                return System.identityHashCode(proxy);
+            }
+            if ("toString".equals(name)) {
+                return "Proxy[" + serviceName + "]";
+            }
+            if ("equals".equals(name)) {
+                return proxy == args[0];
+            }
 
             ServiceInstance ins = discovery.select(serviceName);
             if (ins == null) {
@@ -105,8 +111,12 @@ public class DiscoveryRpcClient implements AutoCloseable {
             });
 
             RpcResponse resp = future.get(15, TimeUnit.SECONDS);
-            if (resp == null) throw new RuntimeException("rpc null response from " + ins.endpoint());
-            if (resp.getException() != null) throw resp.getException();
+            if (resp == null) {
+                throw new RuntimeException("rpc null response from " + ins.endpoint());
+            }
+            if (resp.getException() != null) {
+                throw resp.getException();
+            }
             return resp.getResult();
         }
     }
@@ -114,11 +124,15 @@ public class DiscoveryRpcClient implements AutoCloseable {
     private Channel acquireChannel(ServiceInstance ins) {
         String ep = ins.endpoint();
         ChannelFuture cf = channels.get(ep);
-        if (cf != null && cf.channel() != null && cf.channel().isActive()) return cf.channel();
+        if (cf != null && cf.channel() != null && cf.channel().isActive()) {
+            return cf.channel();
+        }
 
         synchronized (channels) {
             cf = channels.get(ep);
-            if (cf != null && cf.channel() != null && cf.channel().isActive()) return cf.channel();
+            if (cf != null && cf.channel() != null && cf.channel().isActive()) {
+                return cf.channel();
+            }
             log.info("rpc-client: connecting to {} ({})", ep, ins.getInstanceId());
             try {
                 Bootstrap b = new Bootstrap();

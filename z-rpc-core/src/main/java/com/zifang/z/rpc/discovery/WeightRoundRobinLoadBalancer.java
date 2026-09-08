@@ -24,7 +24,9 @@ public class WeightRoundRobinLoadBalancer implements InstanceLoadBalancer {
 
     @Override
     public synchronized ServiceInstance select(List<ServiceInstance> instances) {
-        if (instances == null || instances.isEmpty()) return null;
+        if (instances == null || instances.isEmpty()) {
+            return null;
+        }
         // 复用 state，没建的建上 (线程安全靠 synchronized)
         for (ServiceInstance i : instances) {
             states.computeIfAbsent(i.getInstanceId(), k -> new State(i));
@@ -37,9 +39,13 @@ public class WeightRoundRobinLoadBalancer implements InstanceLoadBalancer {
             double effective = Math.max(0.0001, i.getWeight());
             s.current += effective;
             total += effective;
-            if (pick == null || s.current > pick.current) pick = s;
+            if (pick == null || s.current > pick.current) {
+                pick = s;
+            }
         }
-        if (pick == null) return instances.get(0);
+        if (pick == null) {
+            return instances.get(0);
+        }
         pick.current -= total;
         return pick.instance;
     }

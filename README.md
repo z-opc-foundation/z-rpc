@@ -1,158 +1,148 @@
-# z-rpc
+# Z-RPC
 
-> 轻量 RPC 框架
+一个参考 Dubbo 设计的高性能 Java RPC 框架，与 z-config 服务注册中心深度集成。
 
-基于 Netty + 动态代理的轻量 RPC 框架, 演示 Client/Server 完整调用链
+## 特性
 
----
+- **Dubbo 风格设计**：参考 Dubbo 的分层架构设计
+- **服务注册发现**：集成 z-config 服务注册中心
+- **负载均衡**：支持随机、轮询、最少活跃调用等策略
+- **集群容错**：支持 Failover、Failfast、Failsafe 等策略
+- **Spring Boot 集成**：提供 Spring Boot Starter，注解驱动开发
 
-## 📋 基本信息
+## 快速开始
 
-| 字段 | 值 |
-|------|-----|
-| **项目** | z-rpc |
-| **分类** | 基础设施 · RPC |
-| **父项目** | z-opc (com.zifang:z-opc:1.0.0-SNAPSHOT) |
-| **默认端口** | `8888` |
-| **文档维护** | z-opc-foundation |
-| **最近更新** | 2026-09-06 |
+### 1. 添加依赖
 
----
+```xml
+<dependency>
+    <groupId>com.zifang</groupId>
+    <artifactId>z-rpc-spring-boot-starter</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+</dependency>
+```
 
-## 🎯 核心功能
+### 2. 配置服务提供者
 
-基于 Netty + 动态代理的轻量 RPC 框架, 演示 Client/Server 完整调用链
+```java
+@Service
+public class HelloServiceImpl implements HelloService {
 
-详细功能特性详见各子模块 README 或源码注释。
+    @Override
+    public String sayHello(String name) {
+        return "Hello, " + name + "!";
+    }
+}
 
----
+// 使用编程式 API
+@Service
+public class RpcProvider {
 
-## 🏗️ 项目结构
+    @Autowired
+    private HelloService helloService;
+
+    @PostConstruct
+    public void export() {
+        ServiceConfig<HelloService> config = new ServiceConfig<>();
+        config.setInterfaceClass(HelloService.class);
+        config.setRef(helloService);
+        config.setVersion("1.0.0");
+        config.setPort(20880);
+        config.setRegistry("127.0.0.1:8084"); // z-config 注册中心
+        config.export();
+    }
+}
+```
+
+### 3. 配置服务消费者
+
+```java
+@Service
+public class RpcConsumer {
+
+    @Autowired
+    private HelloService helloService;
+
+    public void test() {
+        String result = helloService.sayHello("World");
+        System.out.println(result);
+    }
+}
+```
+
+### 4. Spring Boot 配置
+
+```yaml
+z:
+  rpc:
+    enabled: true
+    application: my-rpc-app
+    registry:
+      address: 127.0.0.1:8084
+      enabled: true
+    server:
+      port: 20880
+      enabled: true
+    consumer:
+      timeout: 3000
+      retries: 2
+      loadbalance: random
+      cluster: failover
+```
+
+## 项目结构
 
 ```
 z-rpc/
-├── pom.xml                      # 根 POM (引用 z-opc 父项目)
-├── README.md                    # 本文档
-├── MODULE_NOTE.md               # 来源说明 (从 z-opc 拆分)
+├── z-rpc-core              # 核心模块
+│   ├── annotation          # 注解定义
+│   ├── cluster             # 集群容错
+│   ├── common              # 公共类
+│   ├── config              # 配置类
+│   ├── invoke              # 调用抽象
+│   ├── loadbalance         # 负载均衡
+│   ├── proxy               # 代理工厂
+│   ├── registry            # 注册中心
+│   └── remoting            # 网络传输
+├── z-rpc-spring-boot-starter  # Spring Boot 集成
+│   ├── autoconfigure       # 自动配置
+│   └── properties          # 配置属性
+└── README.md
 ```
 
-子模块列表:
+## 核心概念
 
-| 模块 | 职责 |
-|------|------|
-| `z-rpc-core/` | RPC 客户端 + 服务端 + 代理 |
+### 1. Invoker
 
----
+调用者抽象，代表一个可调用实体。无论是本地调用还是远程调用，都通过 Invoker 接口统一处理。
 
-## 🔧 技术栈
+### 2. Directory
 
-- Java 8+
-- Netty
-- JDK Proxy
-- Java 序列化
+目录接口，维护可调用服务列表。负责从注册中心动态获取服务提供者列表。
 
----
+### 3. Router
 
-## 🚀 快速开始
+路由接口，用于过滤 invoker 列表。可以实现灰度发布、同机房优先等功能。
 
-### 前置条件
+### 4. LoadBalance
 
-- JDK 8+ (推荐 JDK 17)
-- Maven 3.6+
-- 端口 `8888` 未被占用
+负载均衡接口，负责从多个服务提供者中选择一个。
 
-### 编译
+### 5. Cluster
 
-```bash
-# 在 z-opc 父项目下编译 (推荐)
-cd /Users/zifang/workplace/idea_workplace/z-opc
-mvn clean install -pl :z-opc -am -DskipTests
+集群接口，负责将多个 Invoker 组合成一个可高可用的 Invoker，提供容错能力。
 
-# 单独编译本模块 (需 ../pom.xml 父项目可用)
-cd /Users/zifang/workplace/ceo_workplace/z-opc-foundation/z-rpc
-mvn clean compile
-```
+## 与 Dubbo 的对比
 
-### 运行
+| 特性          | Z-RPC    | Dubbo                 |
+|-------------|----------|-----------------------|
+| 注册中心        | z-config | Nacos/ZooKeeper/Etcd  |
+| 协议          | 自定义 TCP  | Dubbo/REST/gRPC       |
+| 序列化         | Java 原生  | Hessian/FastJSON/Kryo |
+| 负载均衡        | 3种       | 5种                    |
+| 集群容错        | 1种       | 6种                    |
+| Spring Boot | 原生支持     | 原生支持                  |
 
-```bash
-# 启动主服务 (根据项目类型选择)
-mvn -pl <启动模块> spring-boot:run
-# 或
-java -jar <启动模块>/target/*.jar
-```
+## 许可证
 
----
-
-## 📦 模块说明
-
-z-rpc 由以下子模块组成:
-
-| `z-rpc-core/` | RPC 客户端 + 服务端 + 代理 |
-
-各模块职责详见各子目录下的 `pom.xml` 和源码。
-
----
-
-## 🧪 测试
-
-```bash
-mvn test
-```
-
-测试覆盖:
-- 单元测试: 各核心服务类
-- 集成测试: 端到端调用链路
-- 性能测试: 详见 `/src/test` 下的 `*PerformanceTest.java`
-
----
-
-## 🔌 API 接口
-
-API 接口定义在各子模块的 `controller` 包下。
-
-启动后访问 `http://localhost:8888/swagger-ui.html` 或 `/doc.html` (knife4j) 查看完整 API 文档。
-
----
-
-## 🐳 部署
-
-### Docker
-
-```bash
-# 构建镜像
-docker build -t z-rpc:latest .
-
-# 运行容器
-docker run -d -p 8888:8888 --name z-rpc z-rpc:latest
-```
-
-### 配置
-
-主要配置文件:
-- `application.yml` - Spring Boot 配置
-- `logback.xml` - 日志配置
-- 环境变量: `JAVA_OPTS`, `SPRING_PROFILES_ACTIVE`
-
----
-
-## 📚 相关文档
-
-- [MODULE_NOTE.md](./MODULE_NOTE.md) - 从 z-opc 拆分说明
-- [z-opc 父项目](https://github.com/yuku123/z-opc) - 完整源码
-
----
-
-## 📝 版本历史
-
-| 版本 | 日期 | 变更 |
-|------|------|------|
-| 1.0.0 | 2026-09-06 | 从 z-opc monorepo 拆分独立仓, 文档补齐 |
-
----
-
-## 📄 License
-
-Internal use only. 版权属于 z-biz。
-
-_Maintained by z-opc-foundation organization._
+MIT License
