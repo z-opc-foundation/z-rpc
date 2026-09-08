@@ -56,9 +56,24 @@ public class ZRpcReferenceInjector implements InstantiationAwareBeanPostProcesso
             ReferenceConfig<?> config = buildReferenceConfig(annotation, field.getType());
             Object proxy = config.get();
             field.set(bean, proxy);
+            // 同时把代理注册成 Spring Bean，避免后续 @Autowired 失败
+            registerAsBean(field.getType(), proxy);
             log.info("[ZRpcReference] injected {} -> {}", field.getName(), field.getType().getName());
         } catch (Exception e) {
             log.error("Failed to inject ZRpcReference: " + field.getName(), e);
+        }
+    }
+
+    private final java.util.Set<String> registeredBeanNames = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    private void registerAsBean(Class<?> type, Object proxy) {
+        String beanName = type.getName();
+        if (!registeredBeanNames.add(beanName)) {
+            return;
+        }
+        if (applicationContext != null && applicationContext instanceof org.springframework.context.support.GenericApplicationContext) {
+            ((org.springframework.context.support.GenericApplicationContext) applicationContext)
+                    .getBeanFactory().registerSingleton(beanName, proxy);
         }
     }
 

@@ -18,6 +18,8 @@ z:
       address: 127.0.0.1:8084
       type: z-config
       enabled: true
+    server:
+      enabled: false
     consumer:
       timeout: 3000
       retries: 2
