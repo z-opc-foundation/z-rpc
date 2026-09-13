@@ -285,7 +285,9 @@ public class ServiceConfig<T> {
         }
 
         try {
-            registryService = new com.zifang.z.rpc.registry.ZConfigRegistry(registry);
+            // ZConfigRegistry 暂时禁用 (依赖 z-config-* 未发布,后续 Central 上架后再加)
+            // registryService = new com.zifang.z.rpc.registry.ZConfigRegistry(registry);
+            log.warn("ZConfigRegistry 适配暂时禁用,仅保留直连模式");
             registryService.register(serviceUrl);
             log.info("Service registered to registry: {}", registry);
         } catch (Exception e) {

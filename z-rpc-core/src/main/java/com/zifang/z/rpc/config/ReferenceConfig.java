@@ -10,7 +10,7 @@ import com.zifang.z.rpc.invoke.Result;
 import com.zifang.z.rpc.api.JdkProxyFactory;
 import com.zifang.z.rpc.api.ProxyFactory;
 import com.zifang.z.rpc.registry.RegistryService;
-import com.zifang.z.rpc.registry.ZConfigRegistry;
+// import com.zifang.z.rpc.registry.ZConfigRegistry; // 暂时注释 (依赖 z-config-* 未发布)
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -199,7 +199,9 @@ public class ReferenceConfig<T> {
             throw new IllegalStateException("Registry address is required (or set direct url)");
         }
 
-        registryService = new ZConfigRegistry(registry);
+        // ZConfigRegistry 暂时禁用 (依赖 z-config-* 未发布,后续 Central 上架后再加)
+        // registryService = new ZConfigRegistry(registry);
+        log.warn("ZConfigRegistry 适配暂时禁用,仅保留直连模式");
         log.info("Connected to registry: {}", registry);
     }
 
