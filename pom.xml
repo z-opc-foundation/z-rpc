@@ -4,17 +4,43 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <parent>
-        <groupId>com.zifang</groupId>
-        <artifactId>z-opc</artifactId>
-        <version>1.0.0-SNAPSHOT</version>
-        <relativePath>../pom.xml</relativePath>
-    </parent>
-
+    <!-- z-rpc 自包含 parent — 不依赖 monorepo 内部 parent,
+         改造为 io.github.yuku123 namespace (Maven Central 命名空间) -->
+    <groupId>io.github.yuku123</groupId>
     <artifactId>z-rpc</artifactId>
+    <version>1.0.2</version>
     <packaging>pom</packaging>
-    <name>z-rpc</name>
+    <name>z-rpc (RPC Aggregator)</name>
     <description>Z-RPC: A high-performance Java RPC framework integrating Dubbo/SOFA-RPC/gRPC best practices.</description>
+
+    <url>https://github.com/yuku123/z-rpc</url>
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://opensource.org/licenses/MIT</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <developers>
+        <developer>
+            <id>yuku123</id>
+            <name>yuku123</name>
+            <email>1340947819@qq.com</email>
+            <organization>z-team</organization>
+            <organizationUrl>https://github.com/yuku123</organizationUrl>
+            <timezone>+08:00</timezone>
+            <roles>
+                <role>owner</role>
+            </roles>
+        </developer>
+    </developers>
+    <scm>
+        <connection>scm:git:https://github.com/yuku123/z-rpc.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/yuku123/z-rpc.git</developerConnection>
+        <url>https://github.com/yuku123/z-rpc</url>
+        <tag>HEAD</tag>
+    </scm>
+
 
     <modules>
         <!-- 基础层 -->
@@ -42,25 +68,28 @@
         <module>z-rpc-spring-boot-starter</module>
 
         <!-- 示例与控制台 -->
-        <module>z-rpc-examples</module>
-        <module>z-rpc-admin</module>
+        <!-- 临时排除 z-rpc-examples（依赖 z-rpc-core 同 monorepo 内部，Central 发布时无需 demo） -->
+        <!-- <module>z-rpc-examples</module> -->
+        <!-- 临时排除 z-rpc-admin / z-rpc-registry（依赖未发布的 z-config-*，等 z-config 上 Central 后再加） -->
+        <!-- <module>z-rpc-registry</module> -->
+        <!-- <module>z-rpc-admin</module> -->
     </modules>
 
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <reversion>1.0.0-SNAPSHOT</reversion>
+        <reversion>1.0.1</reversion>
         <compile.version>8</compile.version>
 
         <!-- 内部依赖版本 -->
-        <z-rpc.version>1.0.0-SNAPSHOT</z-rpc.version>
-        <util.version>1.0.2-SNAPSHOT</util.version>
+        <z-rpc.version>1.0.1</z-rpc.version>
+        <util.version>1.0.9</util.version>
         <netty.version>4.1.66.Final</netty.version>
         <hessian.version>4.0.66</hessian.version>
         <kryo.version>5.5.0</kryo.version>
         <protobuf.version>3.25.5</protobuf.version>
-        <spring-boot.version>2.7.18</spring-boot.version>
+        <spring-boot.version>2.7.12</spring-boot.version>
         <log4j.version>2.17.2</log4j.version>
         <slf4j.version>1.7.36</slf4j.version>
         <junit.version>5.8.2</junit.version>
@@ -68,74 +97,74 @@
 
     <dependencyManagement>
         <dependencies>
-            <!-- 内部模块 -->
+            <!-- 内部模块：全部从 com.zifang 迁移到 io.github.yuku123 namespace -->
             <dependency>
-                <groupId>com.zifang</groupId>
+                <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-common</artifactId>
                 <version>${z-rpc.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.zifang</groupId>
+                <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-spi</artifactId>
                 <version>${z-rpc.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.zifang</groupId>
+                <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-api</artifactId>
                 <version>${z-rpc.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.zifang</groupId>
+                <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-serialize</artifactId>
                 <version>${z-rpc.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.zifang</groupId>
+                <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-protocol</artifactId>
                 <version>${z-rpc.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.zifang</groupId>
+                <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-remoting</artifactId>
                 <version>${z-rpc.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.zifang</groupId>
+                <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-registry</artifactId>
                 <version>${z-rpc.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.zifang</groupId>
+                <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-cluster</artifactId>
                 <version>${z-rpc.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.zifang</groupId>
+                <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-filter</artifactId>
                 <version>${z-rpc.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.zifang</groupId>
+                <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-mock</artifactId>
                 <version>${z-rpc.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.zifang</groupId>
+                <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-metrics</artifactId>
                 <version>${z-rpc.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.zifang</groupId>
+                <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-async</artifactId>
                 <version>${z-rpc.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.zifang</groupId>
+                <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-core</artifactId>
                 <version>${z-rpc.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.zifang</groupId>
+                <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-admin</artifactId>
                 <version>${z-rpc.version}</version>
             </dependency>
@@ -215,4 +244,97 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>central</id>
+            <properties>
+                <maven.javadoc.skip>false</maven.javadoc.skip>
+                <central.gpg.skip>false</central.gpg.skip>
+            </properties>
+            <distributionManagement>
+                <repository>
+                    <id>central</id>
+                    <url>https://central.sonatype.com</url>
+                </repository>
+                <snapshotRepository>
+                    <id>central</id>
+                    <url>https://central.sonatype.com</url>
+                </snapshotRepository>
+            </distributionManagement>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-deploy-plugin</artifactId>
+                        <version>3.1.4</version>
+                        <configuration><skip>true</skip></configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <version>3.3.0</version>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <goals><goal>jar-no-fork</goal></goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <version>3.11.2</version>
+                        <configuration>
+                            <doclint>none</doclint>
+                            <failOnError>false</failOnError>
+                            <failOnWarnings>false</failOnWarnings>
+                            <quiet>true</quiet>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>attach-javadocs</id>
+                                <phase>verify</phase>
+                                <goals><goal>jar</goal></goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>3.2.7</version>
+                        <configuration>
+                            <skip>${central.gpg.skip}</skip>
+                            <gpgArguments>
+                                <arg>--pinentry-mode</arg>
+                                <arg>loopback</arg>
+                                <arg>--no-tty</arg>
+                            </gpgArguments>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals><goal>sign</goal></goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <version>0.7.0</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <publishingServerId>central</publishingServerId>
+                            <tokenAuth>true</tokenAuth>
+                            <autoPublish>true</autoPublish>
+                            <waitUntil>uploaded</waitUntil>
+                            <waitMaxTime>1800</waitMaxTime>
+                            <waitPollingInterval>10</waitPollingInterval>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

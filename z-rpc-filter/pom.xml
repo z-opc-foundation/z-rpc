@@ -4,37 +4,69 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>com.zifang</groupId>
+        <groupId>io.github.yuku123</groupId>
         <artifactId>z-rpc</artifactId>
-        <version>1.0.0-SNAPSHOT</version>
+        <version>1.0.2</version>
     </parent>
+    <groupId>io.github.yuku123</groupId>
+    <version>1.0.2</version>
+
     <artifactId>z-rpc-filter</artifactId>
     <name>z-rpc-filter</name>
     <description>Built-in Filter chains (5 consumer + 5 provider) for Z-RPC.</description>
 
+    <url>https://github.com/yuku123/z-rpc</url>
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://opensource.org/licenses/MIT</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <developers>
+        <developer>
+            <id>yuku123</id>
+            <name>yuku123</name>
+            <email>1340947819@qq.com</email>
+            <organization>z-team</organization>
+            <organizationUrl>https://github.com/yuku123</organizationUrl>
+            <timezone>+08:00</timezone>
+            <roles>
+                <role>owner</role>
+            </roles>
+        </developer>
+    </developers>
+    <scm>
+        <connection>scm:git:https://github.com/yuku123/z-rpc.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/yuku123/z-rpc.git</developerConnection>
+        <url>https://github.com/yuku123/z-rpc</url>
+        <tag>HEAD</tag>
+    </scm>
+
+
     <dependencies>
         <dependency>
-            <groupId>com.zifang</groupId>
+            <groupId>io.github.yuku123</groupId>
             <artifactId>z-rpc-common</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.zifang</groupId>
+            <groupId>io.github.yuku123</groupId>
             <artifactId>z-rpc-spi</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.zifang</groupId>
+            <groupId>io.github.yuku123</groupId>
             <artifactId>z-rpc-api</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.zifang</groupId>
+            <groupId>io.github.yuku123</groupId>
             <artifactId>z-rpc-cluster</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.zifang</groupId>
+            <groupId>io.github.yuku123</groupId>
             <artifactId>z-rpc-metrics</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.zifang</groupId>
+            <groupId>io.github.yuku123</groupId>
             <artifactId>z-rpc-async</artifactId>
         </dependency>
         <dependency>
