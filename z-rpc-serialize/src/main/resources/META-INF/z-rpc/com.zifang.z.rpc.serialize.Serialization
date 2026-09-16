@@ -1,0 +1,5 @@
+java=com.zifang.z.rpc.serialize.JavaSerialization
+json=com.zifang.z.rpc.serialize.JsonSerialization
+hessian2=com.zifang.z.rpc.serialize.Hessian2Serialization
+kryo=com.zifang.z.rpc.serialize.KryoSerialization
+protobuf=com.zifang.z.rpc.serialize.ProtobufSerialization

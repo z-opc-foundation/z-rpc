@@ -1,0 +1,111 @@
+# ============ 构建产物 ============
+target/
+build/
+out/
+bin/
+dist/
+
+# ============ 类与字节码 ============
+*.class
+*.jar
+*.war
+*.ear
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+*.dll
+*.so
+*.dylib
+
+# ============ 日志与运行时 ============
+*.log
+logs/
+*.pid
+*.seed
+*.pid.lock
+
+# ============ IDE 与编辑器 ============
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.project
+.classpath
+.settings/
+.idea_modules/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ============ Maven ============
+.flattened-pom.xml
+release.properties
+pom.xml.releaseBackup
+mvnw
+mvnw.cmd
+dependency-reduced-pom.xml
+
+# ============ Spring Boot 配置 ============
+application-*.yml
+application-*.yaml
+application-*.properties
+application-local.*
+application-dev.*
+
+# ============ Node / 前端 ============
+node_modules/
+.npm/
+.yarn/
+.pnpm-store/
+.vite/
+*.tsbuildinfo
+.parcel-cache/
+.cache/
+.next/
+.nuxt/
+.output/
+coverage/
+
+# ============ 测试与覆盖率 ============
+*.lcov
+*.gcov
+*.gcda
+*.gcno
+htmlcov/
+.pytest_cache/
+.tox/
+.coverage
+.coverage.*
+coverage.xml
+junit-*.xml
+surefire-reports/
+test-output/
+
+# ============ Docker / 容器 ============
+*.pid
+docker-compose.override.yml
+.env
+.env.local
+.env.*.local
+
+# ============ 系统与临时 ============
+*~
+*.bak
+*.tmp
+*.swp
+*.swo
+.cache/
+.tmp/
+.temp/
+
+# ============ 第三方运行时 ============
+zk-*/
+nacos/
+
+# ===== Git 本地备份目录 (历史塌缩用) =====
+.git.bak.*/

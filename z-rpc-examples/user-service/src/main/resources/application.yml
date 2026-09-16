@@ -1,0 +1,35 @@
+server:
+  port: 20880
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: user-service
+
+z:
+  rpc:
+    enabled: true
+    application:
+      name: user-service
+      version: 1.0.0
+      organization: zifang
+    registry:
+      address: 127.0.0.1:8084
+      type: z-config
+      enabled: true
+    server:
+      host: 0.0.0.0
+      port: 20880
+      threads: 200
+    protocol:
+      name: z-rpc
+      serialization: hessian2
+    provider:
+      weight: 100
+      timeout: 5000
+
+logging:
+  level:
+    com.zifang.z.rpc: INFO
+    com.zifang.demo: DEBUG

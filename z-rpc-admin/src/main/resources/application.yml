@@ -1,0 +1,12 @@
+server:
+  port: 19090
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: z-rpc-admin
+
+logging:
+  level:
+    com.zifang.z.rpc: INFO
