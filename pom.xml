@@ -83,7 +83,7 @@
         <compile.version>8</compile.version>
 
         <!-- 内部依赖版本 -->
-        <z-rpc.version>1.0.1</z-rpc.version>
+        <z-rpc.version>1.0.2</z-rpc.version>
         <util.version>1.0.9</util.version>
         <netty.version>4.1.66.Final</netty.version>
         <hessian.version>4.0.66</hessian.version>
