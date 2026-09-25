@@ -1,0 +1,328 @@
+package com.zifang.z.rpc.starter.config;
+
+import com.zifang.z.rpc.annotation.ZRpcService;
+import com.zifang.z.rpc.remoting.RpcServer;
+import com.zifang.z.rpc.starter.AnnotationContract;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.aop.framework.ProxyFactory;
+
+import java.lang.reflect.Field;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * {@link ZRpcServiceExporter} 行为测试。
+ * <p>
+ * 用真实但未 start() 的 {@link RpcServer} 当探针：register 只写 serviceMap，
+ * 不占端口，因此可以机械读出导出器到底把什么注册进去了。
+ */
+class ZRpcServiceExporterTest {
+
+    private RpcServer server;
+
+    @AfterEach
+    void tearDown() {
+        if (server != null) {
+            server.stop();
+        }
+    }
+
+    private ZRpcServiceExporter newExporter(RpcServer rpcServer) throws Exception {
+        ZRpcServiceExporter exporter = new ZRpcServiceExporter();
+        Field f = ZRpcServiceExporter.class.getDeclaredField("rpcServer");
+        f.setAccessible(true);
+        f.set(exporter, rpcServer);
+        server = rpcServer;
+        return exporter;
+    }
+
+    private static Map<String, Object> serviceMapOf(RpcServer rpcServer) {
+        return rpcServer.getServiceMap();
+    }
+
+    // ---------------- fixtures ----------------
+
+    interface Alpha {
+        String hello();
+    }
+
+    interface Beta {
+        String hi();
+    }
+
+    @ZRpcService(version = "2.3.4")
+    static class AlphaImpl implements Alpha {
+        public String hello() {
+            return "alpha";
+        }
+    }
+
+    /** 故意一次实现两个接口，检验导出器只取 getInterfaces()[0]。 */
+    @ZRpcService
+    static class TwoFaceImpl implements Alpha, Beta {
+        public String hello() {
+            return "hello";
+        }
+
+        public String hi() {
+            return "hi";
+        }
+    }
+
+    /** 没有任何接口的 @ZRpcService 实现。 */
+    @ZRpcService(version = "9.9.9")
+    static class NoInterfaceImpl {
+        public String ping() {
+            return "pong";
+        }
+    }
+
+    /** 未标注解的普通 Bean。 */
+    static class PlainImpl implements Alpha {
+        public String hello() {
+            return "plain";
+        }
+    }
+
+    /** 富属性注解，用来证明除 version 外全部被丢弃。 */
+    @ZRpcService(interfaceClass = Alpha.class, version = "7.0.0", group = "g1",
+            weight = 42, delay = 1500, timeout = 8888, retries = 7,
+            loadbalance = "leastactive", cluster = "failfast", async = true)
+    static class RichImpl implements Alpha, Beta {
+        public String hello() {
+            return "rich";
+        }
+
+        public String hi() {
+            return "rich-hi";
+        }
+    }
+
+    // ---------------- tests ----------------
+
+    @Test
+    @DisplayName("未标注 @ZRpcService 的 Bean 原样返回且不注册")
+    void nonAnnotatedBeanIsUntouched() throws Exception {
+        RpcServer rpcServer = new RpcServer("127.0.0.1", AnnotationContract.freePort());
+        ZRpcServiceExporter exporter = newExporter(rpcServer);
+
+        PlainImpl bean = new PlainImpl();
+        Object out = exporter.postProcessAfterInitialization(bean, "plainImpl");
+
+        assertSame(bean, out);
+        assertTrue(serviceMapOf(rpcServer).isEmpty(),
+                "无注解却注册了: " + serviceMapOf(rpcServer).keySet());
+    }
+
+    @Test
+    @DisplayName("标注 @ZRpcService 后按 interfaceClass + version 注册，返回同一个 Bean 引用")
+    void explicitInterfaceClassRegisters() throws Exception {
+        RpcServer rpcServer = new RpcServer("127.0.0.1", AnnotationContract.freePort());
+        ZRpcServiceExporter exporter = newExporter(rpcServer);
+
+        AlphaImpl bean = new AlphaImpl();
+        Object out = exporter.postProcessAfterInitialization(bean, "alphaImpl");
+
+        assertSame(bean, out, "BeanPostProcessor 必须原样返回 bean");
+        Map<String, Object> map = serviceMapOf(rpcServer);
+        assertEquals(1, map.size(), "注册表: " + map.keySet());
+        // AlphaImpl 声明 version="2.3.4"，@ZRpcService.version() 默认值是 "1.0.0"，
+        // 因此键必须带上版本号，而不是裸接口名。
+        assertTrue(map.containsKey(Alpha.class.getName() + ":2.3.4"),
+                "key 必须是 {接口全限定名}:{version}，实际: " + map.keySet());
+        assertSame(bean, map.get(Alpha.class.getName() + ":2.3.4"));
+    }
+
+    @Test
+    @DisplayName("同接口不同版本的 Provider 各占一个键，互不覆盖")
+    void versionedProvidersAreKeptApart() throws Exception {
+        RpcServer rpcServer = new RpcServer("127.0.0.1", AnnotationContract.freePort());
+        ZRpcServiceExporter exporter = newExporter(rpcServer);
+
+        // prey：先证明 version 不同、接口相同
+        AlphaImpl v1 = new AlphaImpl();          // @ZRpcService(version = "2.3.4")
+        OtherVersionImpl v2 = new OtherVersionImpl(); // @ZRpcService(version = "5.6.7")，同一 Alpha 接口
+
+        exporter.postProcessAfterInitialization(v1, "alphaV1");
+        exporter.postProcessAfterInitialization(v2, "alphaV2");
+
+        Map<String, Object> map = serviceMapOf(rpcServer);
+        assertEquals(2, map.size(),
+                "两个精确版本 key，不多不少: " + map.keySet());
+        assertSame(v1, map.get(Alpha.class.getName() + ":2.3.4"), "v1 被覆盖");
+        assertSame(v2, map.get(Alpha.class.getName() + ":5.6.7"), "v2 被覆盖");
+        // 关键负向断言（prey 是上面两条同接口注册）：不再写裸接口名别名，
+        // 否则"谁先到"决定默认实现，等于把缺陷换了个名字留下。
+        assertFalse(map.containsKey(Alpha.class.getName()),
+                "带版本注册不得同时占用裸键: " + map.keySet());
+    }
+
+    @ZRpcService(interfaceClass = Alpha.class, version = "5.6.7")
+    static class OtherVersionImpl implements Alpha {
+        public String hello() {
+            return "other-version";
+        }
+    }
+
+    @Test
+    @DisplayName("interfaceClass 缺省时导出全部接口：第二个接口不再被静默丢弃")
+    void allImplementedInterfacesAreExported() throws Exception {
+        RpcServer rpcServer = new RpcServer("127.0.0.1", AnnotationContract.freePort());
+        ZRpcServiceExporter exporter = newExporter(rpcServer);
+
+        exporter.postProcessAfterInitialization(new TwoFaceImpl(), "twoFaceImpl");
+        Map<String, Object> map = serviceMapOf(rpcServer);
+
+        // TwoFaceImpl 未写 version，@ZRpcService.version() 默认 "1.0.0" => 键带默认版本后缀
+        assertEquals(2, map.size(),
+                "实现两个接口就该导出两个，消费方调 Beta 也要能找到: " + map.keySet());
+        assertSameTwoFace(map.get(Alpha.class.getName() + ":1.0.0"), Alpha.class);
+        assertSameTwoFace(map.get(Beta.class.getName() + ":1.0.0"), Beta.class);
+    }
+
+    private static void assertSameTwoFace(Object exported, Class<?> iface) {
+        assertNotNull(exported, "接口 " + iface + " 没被导出");
+        assertTrue(iface.isInstance(exported), iface + " 实例校验失败: " + exported.getClass());
+    }
+
+    @Test
+    @DisplayName("无任何接口的 @ZRpcService 被跳过（只 warn，不报错）")
+    void beanWithoutInterfacesIsSkipped() throws Exception {
+        RpcServer rpcServer = new RpcServer("127.0.0.1", AnnotationContract.freePort());
+        ZRpcServiceExporter exporter = newExporter(rpcServer);
+
+        NoInterfaceImpl bean = new NoInterfaceImpl();
+        Object out = exporter.postProcessAfterInitialization(bean, "noInterfaceImpl");
+
+        assertSame(bean, out);
+        assertTrue(serviceMapOf(rpcServer).isEmpty(),
+                "无接口的服务被静默跳过，用户得不到任何启动期失败 => " + serviceMapOf(rpcServer));
+    }
+
+    @Test
+    @DisplayName("CGLIB 代理过的 @ZRpcService Bean 照常导出，且导出的是代理本身")
+    void cglibProxiedBeanIsExported() throws Exception {
+        RpcServer rpcServer = new RpcServer("127.0.0.1", AnnotationContract.freePort());
+        ZRpcServiceExporter exporter = newExporter(rpcServer);
+
+        ProxyFactory pf = new ProxyFactory(new AlphaImpl());
+        pf.setProxyTargetClass(true);
+        Object proxy = pf.getProxy();
+
+        assertNull(proxy.getClass().getAnnotation(ZRpcService.class),
+                "prey：CGLIB 子类的裸 getAnnotation 确实读不到 —— 所以导出器必须走 getUserClass");
+        exporter.postProcessAfterInitialization(proxy, "alphaProxy");
+
+        Map<String, Object> map = serviceMapOf(rpcServer);
+        assertEquals(1, map.size(), "代理 Bean 也必须导出: " + map.keySet());
+        assertSame(proxy, map.get(Alpha.class.getName() + ":2.3.4"),
+                "注册的必须是代理（这样 @Transactional/@Async 才继续生效），而不是目标对象");
+    }
+
+    @Test
+    @DisplayName("bug_除 version 外的注解属性全部无落点：weight/timeout/retries/loadbalance/cluster/delay/async/group/interfaceName")
+    void bug_mostAnnotationAttributesHaveNoEffect() throws Exception {
+        RpcServer rpcServer = new RpcServer("127.0.0.1", AnnotationContract.freePort());
+        ZRpcServiceExporter exporter = newExporter(rpcServer);
+
+        RichImpl bean = new RichImpl();
+        exporter.postProcessAfterInitialization(bean, "richImpl");
+        assertEquals(1, serviceMapOf(rpcServer).size(), "有 prey：注册确实发生了");
+
+        // 机械证明：RpcServer 上所有 register* 入口的参数类型里没有任何数值位，
+        // 所以 weight / timeout / retries / delay / threads 在类型层面就无处可去。
+        int registerOverloads = 0;
+        for (java.lang.reflect.Method m : RpcServer.class.getDeclaredMethods()) {
+            if (!m.getName().startsWith("register")) {
+                continue;
+            }
+            registerOverloads++;
+            for (java.lang.Class<?> pt : m.getParameterTypes()) {
+                assertFalse(pt == int.class || pt == long.class || Number.class.isAssignableFrom(pt),
+                        "register* 出现了数值参数，属性落点结论需要重估: " + m);
+            }
+        }
+        assertEquals(3, registerOverloads,
+                "RpcServer 的 register* 重载数量发生变化，请重新核对属性落点: "
+                        + java.util.Arrays.toString(RpcServer.class.getDeclaredMethods()));
+    }
+
+    @Test
+    @DisplayName("rpcServer 尚未注入时先入队，ContextRefreshedEvent 时补注册")
+    void pendingRegistrationsFlushOnContextRefreshed() throws Exception {
+        ZRpcServiceExporter pre = new ZRpcServiceExporter();
+        AlphaImpl bean = new AlphaImpl();
+        pre.postProcessAfterInitialization(bean, "alphaImpl");
+
+        RpcServer rpcServer = new RpcServer("127.0.0.1", AnnotationContract.freePort());
+        ZRpcServiceExporter exporter = newExporter(rpcServer);
+        // 同一个 bean 走"rpcServer 为 null -> 入队 -> 事件回调"的完整路径
+        Field f = ZRpcServiceExporter.class.getDeclaredField("rpcServer");
+        f.setAccessible(true);
+        f.set(exporter, null);
+        exporter.postProcessAfterInitialization(bean, "alphaImpl");
+        assertTrue(serviceMapOf(rpcServer).isEmpty(), "rpcServer 为 null 时不应注册");
+
+        f.set(exporter, rpcServer);
+        exporter.onContextRefreshed();
+        assertEquals(1, serviceMapOf(rpcServer).size(), "事件回调后应补注册");
+
+        exporter.onContextRefreshed();
+        assertEquals(1, serviceMapOf(rpcServer).size(), "队列必须清空，重复事件不得重复注册");
+        assertNotNull(pre);
+    }
+
+    @Test
+    @DisplayName("bug_rpcServer_始终为_null_时待注册队列永不清空（持有 Bean 引用）")
+    void bug_pendingQueueLeaksWhenNoServer() throws Exception {
+        ZRpcServiceExporter exporter = new ZRpcServiceExporter();
+        exporter.postProcessAfterInitialization(new AlphaImpl(), "alphaImpl");
+        exporter.onContextRefreshed();
+
+        Object pending = readPending(exporter);
+        assertNotNull(pending,
+                "队列里没有任务 => 这条测试是空跑，请先确认 postProcess 真的入队了");
+        // 实际行为：onContextRefreshed 遇到 rpcServer==null 直接 return，
+                // 队列里的 Runnable 连同其中的 bean 引用被永久保留。
+        assertTrue(pending.toString().contains("ZRpcServiceExporter"),
+                "队列应仍持有 lambda: " + pending);
+    }
+
+    private Object readPending(ZRpcServiceExporter exporter) throws Exception {
+        Field f = ZRpcServiceExporter.class.getDeclaredField("pendingRegistrations");
+        f.setAccessible(true);
+        java.util.List<?> list = (java.util.List<?>) f.get(exporter);
+        return list.isEmpty() ? null : list;
+    }
+
+    @Test
+    @DisplayName("register 抛异常时只 log.error，Bean 照常返回（导出失败对上层完全静默）")
+    void registerFailureIsSwallowed() throws Exception {
+        RpcServer rpcServer = new RpcServer("127.0.0.1", AnnotationContract.freePort());
+        ZRpcServiceExporter exporter = newExporter(rpcServer);
+        // 用 null 接口触发 register 内部 NPE/IllegalArgumentException
+        Object out = null;
+        try {
+            out = exporter.postProcessAfterInitialization(new NoInterfaceHolder(), "boom");
+        } catch (RuntimeException e) {
+            throw new AssertionError("导出异常不得冒泡到容器", e);
+        }
+        assertNotNull(out);
+        assertFalse(rpcServer.isStarted(), "导出器不该顺带把 server 启动起来");
+    }
+
+    /** 一个实现接口但会让 register 失败的 fixture（接口为 Object 之外的非服务类型）。 */
+    @ZRpcService(interfaceClass = Runnable.class, version = "1")
+    static class NoInterfaceHolder implements Runnable {
+        public void run() {
+        }
+    }
+}

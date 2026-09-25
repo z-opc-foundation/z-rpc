@@ -1,0 +1,1 @@
+probe=com.zifang.z.rpc.cluster.SpiRegistrationLivenessTest$ProbeImpl

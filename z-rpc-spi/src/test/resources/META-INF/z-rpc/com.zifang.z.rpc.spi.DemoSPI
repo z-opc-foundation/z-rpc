@@ -1,0 +1,4 @@
+alpha=com.zifang.z.rpc.spi.DemoAlpha
+beta=com.zifang.z.rpc.spi.DemoBeta
+gamma=com.zifang.z.rpc.spi.DemoGamma
+# 注释行与空行必须被跳过
