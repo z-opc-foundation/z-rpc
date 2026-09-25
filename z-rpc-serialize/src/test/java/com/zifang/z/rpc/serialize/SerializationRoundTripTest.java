@@ -19,8 +19,6 @@ import java.util.Objects;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNotSame;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -216,41 +214,32 @@ class SerializationRoundTripTest {
     }
 
     @Test
-    @DisplayName("bug_未知 id 静默回落到 Hessian2：对端用错序列化器时不会报错，只会解出乱码")
-    void bug_unknownIdSilentlyFallsBackToHessian2() {
-        assertSame(Hessian2Serialization.class, SerializationFactory.get((byte) 0).getClass());
-        assertSame(Hessian2Serialization.class, SerializationFactory.get((byte) 6).getClass());
-        assertSame(Hessian2Serialization.class, SerializationFactory.get((byte) 99).getClass());
-        // 猎物：Java 序列化的字节交给这个"回落"实现去解，不会抛错而是抛出一个完全不同的异常/结果
-        byte[] javaBytes = SerializationFactory.getByName("java").serialize(sample());
-        Serialization fallback = SerializationFactory.get((byte) 6);
-        assertSame(SerializationFactory.getByName("hessian2"), fallback);
-        try {
-            Object bogus = fallback.deserialize(javaBytes, Pojo.class);
-            // 如果它竟然解出来了，那更是事故：结果必然不是原对象
-            assertTrue(bogus == null || !sample().equals(bogus),
-                    "跨序列化器解码竟然得到了相同对象: " + bogus);
-        } catch (Throwable expected) {
-            assertNotNull(expected);
+    @DisplayName("未知 id 直接报错，不再静默回落到 Hessian2")
+    void unknownIdFailsFastInsteadOfFallingBack() {
+        // 猎物：已注册的 id 照旧拿得到
+        assertEquals(Hessian2Serialization.class,
+                SerializationFactory.get(ProtocolConstants.SERIALIZE_HESSIAN2).getClass());
+        for (byte id : new byte[]{0, 6, 99}) {
+            RpcException e = assertThrows(RpcException.class, () -> SerializationFactory.get(id),
+                    "id 0x" + String.format("%02X", id) + " 没有人注册过，必须炸而不是回落");
+            assertTrue(e.getMessage().contains(String.format("0x%02X", id)),
+                    "报错里要带上出错的那个 id: " + e.getMessage());
         }
-        // 明确报错的对照：JSON 字节喂给 java 实现
-        assertThrows(Throwable.class,
-                () -> SerializationFactory.getByName("java")
-                        .deserialize(SerializationFactory.getByName("json").serialize(sample()), Pojo.class));
     }
 
     @Test
-    @DisplayName("bug_未知 name 返回 null 而不是抛错，调用方直接 NPE")
-    void bug_unknownNameReturnsNull() {
-        assertNull(SerializationFactory.getByName("protostuff"));
-        assertNull(SerializationFactory.getByName(""));
-        assertNull(SerializationFactory.getByName(null));
+    @DisplayName("未知 name / null name 立刻报错，不再返回 null 让调用方炸 NPE")
+    void unknownNameFailsFastInsteadOfReturningNull() {
         // 猎物：合法名字都拿得到实例
         assertNotNull(SerializationFactory.getByName("java"));
-        // 因此 z.rpc.consumer.serialization=thrift 这类拼写错误会在第一次调用处炸出 NPE
-        NullPointerException npe = assertThrows(NullPointerException.class,
-                () -> SerializationFactory.getByName("thrift").serialize("x"));
-        assertNotNull(npe);
+        assertThrows(RpcException.class, () -> SerializationFactory.getByName("protostuff"));
+        assertThrows(RpcException.class, () -> SerializationFactory.getByName(""));
+        assertThrows(IllegalArgumentException.class, () -> SerializationFactory.getByName(null));
+        // z.rpc.consumer.serialization=thrift 这类拼写错误：在取用点就报"名字不认识 + 支持哪些"，
+        // 而不是把 NPE 抛在第一次解引用上
+        RpcException e = assertThrows(RpcException.class, () -> SerializationFactory.getByName("thrift"));
+        assertTrue(e.getMessage().contains("thrift"), e.getMessage());
+        assertTrue(e.getMessage().contains("hessian2"), "报错应列出可用名字: " + e.getMessage());
     }
 
     @Test
@@ -275,25 +264,22 @@ class SerializationRoundTripTest {
                 Arrays.asList("java", "json", "hessian2", "kryo", "protobuf")), loader.getExtensionNames().toString());
         assertEquals("hessian2", Serialization.class.getAnnotation(com.zifang.z.rpc.spi.SPI.class).value());
         assertEquals(Hessian2Serialization.class, loader.getDefaultExtension().getClass());
-        // ExtensionLoader 与 SerializationFactory 各自独立 new 一份实例（见下面的 bug_ 测试），
-        // 因此只能断言"两边解析同一个名字得到同一类型"，不能断言同一个对象。
-        assertEquals(loader.getExtension("kryo").getClass(), SerializationFactory.getByName("kryo").getClass());
+        assertSame(loader.getExtension("kryo"), SerializationFactory.getByName("kryo"),
+                "工厂改走 SPI 装载之后，两边可以断到同一个对象（修复前只能断同类）");
     }
 
     @Test
-    @DisplayName("bug_双份注册表：ExtensionLoader 与 SerializationFactory 对同一名字给出不同实例")
-    void bug_twoRegistriesHandOutDifferentInstances() {
+    @DisplayName("两张注册表合流：ExtensionLoader 与 SerializationFactory 对每个名字都给同一实例")
+    void theTwoRegistriesHandOutTheSameInstances() {
         com.zifang.z.rpc.spi.ExtensionLoader<Serialization> loader =
                 com.zifang.z.rpc.spi.ExtensionLoader.getExtensionLoader(Serialization.class);
-        Serialization viaLoader = loader.getExtension("kryo");
-        Serialization viaFactory = SerializationFactory.getByName("kryo");
-        // 两边类名一致，但 SerializationFactory 的静态块自己 new 了 5 个序列化器，
-        // 从不读 SPI 元文件；ExtensionLoader 也不回填工厂。
-        // => 用户在 SPI 元文件里把 kryo 换成自定义实现，协议层（走工厂、按 id 取）毫无感知。
-        assertSame(viaLoader, loader.getExtension("kryo"), "prey：loader 自己是单例缓存");
-        assertSame(viaFactory, SerializationFactory.getByName("kryo"), "prey：factory 自己是单例缓存");
-        assertNotSame(viaLoader, viaFactory,
-                "两套注册表各存一份实例 => @SPI 补齐后 SPI 侧可加载，但运行时取到的仍是工厂那份");
+        for (String name : new String[]{"java", "json", "hessian2", "kryo", "protobuf"}) {
+            Serialization viaLoader = loader.getExtension(name);
+            assertSame(viaLoader, loader.getExtension(name), "prey：loader 自己是单例缓存");
+            assertSame(viaLoader, SerializationFactory.getByName(name), name + " 经两条路必须同一实例");
+            assertSame(viaLoader, SerializationFactory.get(viaLoader.getContentTypeId()),
+                    name + " 按 id 取也必须回到同一个实例");
+        }
     }
 
     @Test

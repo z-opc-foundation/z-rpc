@@ -17,6 +17,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -92,58 +93,93 @@ class MetricsStorageServiceTest {
                 "空写入不应产生任何 QPS");
     }
 
-    // ---------------- 缺陷 ----------------
+    // ---------------- 曾经算错、现已修正的指标口径 ----------------
+
+    /** 取 listServices 里某个服务的 qps；服务行不存在直接炸，免得"缺失"被读成 0。 */
+    private long qpsOf(String serviceKey) {
+        long v = -1L;
+        for (ServiceVO vo : store.listServices()) {
+            if (serviceKey.equals(vo.getServiceKey())) {
+                v = ((Number) vo.getMetrics().get("qps")).longValue();
+            }
+        }
+        if (v < 0L) {
+            throw new IllegalStateException("listServices 里没有服务行: " + serviceKey);
+        }
+        return v;
+    }
 
     @Test
-    @DisplayName("bug_同一 id 重复推送会在服务视图里无限堆积 Provider")
-    void bug_recordProviderDuplicatesPerPush() {
+    @DisplayName("同一 id 重复推送按 id 收敛，总表与按服务查询两边一致")
+    void providerPushesAreIdempotentById() {
         store.recordProvider(provider("p1", "svcA", "10.0.0.1:1"));
         store.recordProvider(provider("p1", "svcA", "10.0.0.1:1"));
         store.recordProvider(provider("p1", "svcA", "10.0.0.1:1"));
 
         assertEquals(1, store.listProviders().size(),
                 "providers 是按 id 的 Map，重复推送被去重");
-        assertEquals(3, store.listProvidersByService("svcA").size(),
-                "但 ServiceRegistry.providers 是 List，同一个 Provider 被记了 3 次 => "
-                        + "控制台的 providerCount 会随每次心跳线性膨胀");
+        assertEquals(1, store.listProvidersByService("svcA").size(),
+                "ServiceRegistry.providers 也必须按 id 收敛，否则控制台 providerCount 随心跳线性膨胀");
+
+        // 猎物 1：去重只认 id，不同实例必须各自留下
+        store.recordProvider(provider("p2", "svcA", "10.0.0.2:2"));
+        assertEquals(2, store.listProvidersByService("svcA").size(),
+                "收敛不能把不同 provider 合成一个");
+
+        // 猎物 2：同 id 重推要留下最新那份，而不是留住第一条
+        MetricsStorageService fresh = new MetricsStorageService();
+        fresh.recordProvider(provider("p1", "svcA", "old:1"));
+        fresh.recordProvider(provider("p1", "svcA", "new:2"));
+        List<ProviderVO> after = fresh.listProvidersByService("svcA");
+        assertEquals(1, after.size());
+        assertEquals("new:2", after.get(0).getAddress(),
+                "心跳带上来的是最新状态，视图必须跟着更新");
     }
 
     @Test
-    @DisplayName("bug_serviceKey 用 startsWith 前缀匹配：svc 会吞掉 svc-item 的指标")
-    void bug_prefixMatchingLeaksAcrossServices() {
+    @DisplayName("服务归属按整段相等匹配：order 不再吞掉 order-item 的指标")
+    void serviceAttributionIsExactNotPrefix() {
         store.recordProvider(provider("p1", "order", "10.0.0.1:1"));
         store.recordProvider(provider("p2", "order-item", "10.0.0.2:2"));
 
         store.recordMetrics(push("order", "pay", 100L));
         store.recordMetrics(push("order-item", "query", 900L));
 
-        long orderQps = 0L;
-        for (ServiceVO vo : store.listServices()) {
-            if ("order".equals(vo.getServiceKey())) {
-                orderQps = ((Number) vo.getMetrics().get("qps")).longValue();
-            }
-        }
-        // metricsHistory 的 key 是 "service:method"，用 startsWith("order") 过滤
-        // 会把 "order-item:query" 也算进 order 的 QPS。
-        assertEquals(1000L, orderQps,
-                "实测 order 的 QPS = 自身 100 + 被误吞的 order-item 900，证明前缀匹配跨服务串味");
+        // metricsHistory 的 key 是 "service:method"，曾经用 startsWith(serviceKey) 过滤，
+        // "order-item:query" 会被算进 order 头上（实测 100 + 900 = 1000）。
+        assertEquals(100L, qpsOf("order"),
+                "order 只该有自己那 100");
 
-        // 反向 prey：精确名不受影响
+        // 猎物：精确匹配切出去之后，两边各自都还得查得到
         assertTrue(store.getMetricsHistory("order").containsKey("order:pay"));
-        assertTrue(store.getMetricsHistory("order").containsKey("order-item:query"),
-                "getMetricsHistory 同样按前缀返回，说明这不是 listServices 独有的问题");
+        assertFalse(store.getMetricsHistory("order").containsKey("order-item:query"),
+                "getMetricsHistory 也不能再按前缀返回");
+        assertTrue(store.getMetricsHistory("order-item").containsKey("order-item:query"),
+                "order-item 必须还能查到自己那条序列");
+        assertEquals(900L, qpsOf("order-item"));
     }
 
     @Test
-    @DisplayName("bug_QPS 是整个历史序列的和，不是速率：同一份流量会随推送次数线性放大")
-    void bug_qpsIsCumulativeSumNotRate() {
+    @DisplayName("QPS 取最近一次上报的速率，不是整条历史序列的和")
+    void qpsIsTheLatestRateNotTheCumulativeSum() {
         store.recordProvider(provider("p1", "svcA", "10.0.0.1:1"));
         for (int i = 0; i < 5; i++) {
             store.recordMetrics(push("svcA", "pay", 10L));
         }
-        Object total = store.dashboardOverview().get("totalQps");
-        assertEquals(50L, ((Number) total).longValue(),
-                "5 次各 10 QPS 的推送被汇总成 50 —— 字段名叫 qps 但语义是累计和");
+        assertEquals(10L, ((Number) store.dashboardOverview().get("totalQps")).longValue(),
+                "同一份 10 QPS 的流量推 5 次仍然读回 10 —— 修复前是 5 次累加成 50");
+
+        // 猎物：不同方法各自保最新值，汇总才是相加
+        store.recordMetrics(push("svcA", "submit", 5L));
+        assertEquals(15L, ((Number) store.dashboardOverview().get("totalQps")).longValue());
+
+        // 同一方法再推一次：只覆盖，不累加
+        store.recordMetrics(push("svcA", "pay", 20L));
+        assertEquals(25L, ((Number) store.dashboardOverview().get("totalQps")).longValue());
+
+        // 速率口径变了，但历史序列本身一个点都不能少（svcA:pay = 5 次 + 覆盖那次 = 6）
+        assertEquals(6, store.getMetricsHistory("svcA").get("svcA:pay").size(),
+                "latestMetrics 只是读数视图，序列仍按原样留痕");
     }
 
     @Test
@@ -185,8 +221,8 @@ class MetricsStorageServiceTest {
     }
 
     @Test
-    @DisplayName("并发 recordMetrics 会丢点或抛错（ArrayList 无同步）")
-    void concurrentRecordMetricsIsNotSafe() throws Exception {
+    @DisplayName("并发 recordMetrics：不抛错，且正好停在 1000 上限")
+    void concurrentRecordMetricsHonoursTheCap() throws Exception {
         final int threads = 8;
         final int perThread = 200;
         ExecutorService pool = Executors.newFixedThreadPool(threads);
@@ -220,11 +256,12 @@ class MetricsStorageServiceTest {
         if (h != null) {
             retained = h.size();
         }
-        // 结论按实测记账：either 丢点、或截断到 1000、或抛异常。
-        assertTrue(retained > 0, "prey：确实写入了数据, retained=" + retained);
         System.out.println("[concurrentRecordMetrics] attempted=" + attempted
                 + " retained=" + retained + " errors=" + errors.size());
-        assertTrue(attempted == 1600, "投递量应为 1600, 实际 " + attempted);
+        assertTrue(errors.isEmpty(), "并发写入不应抛错: " + errors);
+        assertEquals(1600, attempted, "投递量应为 1600");
+        // 追加 + 截断合成一个同步块之后，上限才是硬上限；修复前实测冲到 1012
+        assertEquals(1000, retained, "1600 次投递截断后必须正好是 1000");
     }
 
     @Test
@@ -238,8 +275,8 @@ class MetricsStorageServiceTest {
     }
 
     @Test
-    @DisplayName("listServices 的 providerCount 取自 registry，与 bug 重复计数一致")
-    void serviceVoProviderCountReflectsRegistryList() {
+    @DisplayName("listServices 的 providerCount 与去重后的 registry 一致")
+    void serviceVoProviderCountIsDeduplicated() {
         store.recordProvider(provider("p1", "svcA", "a:1"));
         store.recordProvider(provider("p1", "svcA", "a:1"));
         ServiceVO found = null;
@@ -249,8 +286,9 @@ class MetricsStorageServiceTest {
             }
         }
         assertNotNull(found);
-        assertEquals("svcA", found.getServiceName(), "serviceName 被直接赋成 serviceKey");
-        assertEquals(2, found.getProviderCount(), "同一条 provider 记成了 2 个");
+        assertEquals("svcA", found.getServiceName(), "serviceName 目前就是直接取 serviceKey");
+        assertEquals(1, found.getProviderCount(),
+                "同一条 provider 心跳重推只能算 1 个");
         assertSame(found.getMetrics().get("qps"), found.getMetrics().get("qps"));
     }
 }
