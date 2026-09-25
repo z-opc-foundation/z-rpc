@@ -9,6 +9,11 @@ public class RpcRequest implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
+     * 不带 version 附件时的缺省版本。服务端也用它来认"请求方其实没说要哪个版本"。
+     */
+    public static final String DEFAULT_VERSION = "1.0.0";
+
+    /**
      * 请求 ID
      */
     private String requestId;
@@ -42,7 +47,7 @@ public class RpcRequest implements Serializable {
      * 获取服务版本
      */
     public String getVersion() {
-        return attachments.getOrDefault("version", "1.0.0");
+        return attachments.getOrDefault("version", DEFAULT_VERSION);
     }
 
     /**

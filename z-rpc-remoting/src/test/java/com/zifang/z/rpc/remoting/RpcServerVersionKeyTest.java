@@ -153,6 +153,35 @@ class RpcServerVersionKeyTest {
     }
 
     @Test
+    @DisplayName("裸键注册只替缺省版本应答，不得替该接口的所有版本冒充应答")
+    void bareRegistrationDoesNotImpersonateEveryVersion() throws Exception {
+        RpcServer server = new RpcServer("127.0.0.1", 0);
+        Map<String, Object> map = liveServiceMap(server);
+        server.registerService(Greeter.class, new Plain());
+        server.register(Greeter.class, new V234(), "2.3.4");
+
+        assertEquals("v234", invoke(map, request("2.3.4")).getResult(), "prey：精确键这一路照常");
+
+        RpcResponse wrong = invoke(map, request("8.8.8"));
+        assertTrue(wrong.hasException(),
+                "裸键条目把任意版本都接走了，实收 result=" + wrong.getResult());
+        assertTrue(String.valueOf(wrong.getErrorMessage()).contains("Service not found"),
+                String.valueOf(wrong.getErrorMessage()));
+
+        // 缺省版本这一路必须留着：不带 version 附件的请求在服务端读出来就是 "1.0.0"，
+        // 与"指名要 1.0.0"不可区分；拒掉它 = 裸键 Provider 对所有不设版本的消费端不可达。
+        assertEquals("plain", invoke(map, request(null)).getResult(),
+                "缺省版本请求仍应命中裸键条目");
+
+        // 该接口没有任何带版本登记时（没有别的候选），退回裸键这条路仍然生效
+        RpcServer bareOnly = new RpcServer("127.0.0.1", 0);
+        Map<String, Object> bareMap = liveServiceMap(bareOnly);
+        bareOnly.registerService(Greeter.class, new Plain());
+        assertEquals("plain", invoke(bareMap, request("8.8.8")).getResult(),
+                "没有别的候选时不该拦下退回");
+    }
+
+    @Test
     @DisplayName("getServiceMap() 返回的是快照副本，往里写不影响真表")
     void serviceMapAccessorReturnsCopy() throws Exception {
         RpcServer server = new RpcServer("127.0.0.1", 0);

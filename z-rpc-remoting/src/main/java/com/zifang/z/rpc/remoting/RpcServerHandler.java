@@ -38,7 +38,14 @@ public class RpcServerHandler extends SimpleChannelInboundHandler<RpcRequest> {
             String serviceName = request.getInterfaceName();
             String version = request.getVersion();
             Object service = serviceMap.get(RpcServer.serviceKey(serviceName, version));
-            if (service == null && version != null && !version.isEmpty()) {
+            // 退回裸键不等于"精确键没查到就能退"：任何一条 registerService() 留下的
+            // 裸键条目替该接口的所有版本冒充应答，版本维度就直接消失了。放行的两种情形是
+            // "该接口没有任何带版本的登记"（没有别的候选），或请求版本是 RpcRequest 的
+            // 缺省值 —— 不带 version 附件的请求在服务端与"要 1.0.0"不可区分，砍掉这一条
+            // 会让裸键 Provider 对所有不显式设版本的消费端永久不可达。
+            if (service == null && version != null && !version.isEmpty()
+                    && (RpcRequest.DEFAULT_VERSION.equals(version)
+                            || !hasVersionedRegistration(serviceName))) {
                 service = serviceMap.get(serviceName);
             }
 
@@ -71,6 +78,19 @@ public class RpcServerHandler extends SimpleChannelInboundHandler<RpcRequest> {
         }
 
         return response;
+    }
+
+    /**
+     * 该接口是否存在任何一条带版本的登记（键形如 {@code {interface}:{version}}）。
+     */
+    private boolean hasVersionedRegistration(String serviceName) {
+        String prefix = serviceName + ":";
+        for (String key : serviceMap.keySet()) {
+            if (key.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Method findMethod(Class<?> clazz, String methodName, Class<?>[] paramTypes) {
