@@ -67,7 +67,9 @@ public class JdkProxyFactory implements ProxyFactory {
             if ("hashCode".equals(methodName) && paramTypes.length == 0) {
                 return invoker.hashCode();
             }
-            if ("equals".equals(methodName) && paramTypes.length == 1) {
+            // 只认领 Object 的那三个方法：接口自己声明 equals(String) 之类的重载时，
+            // 那是业务方法，按名字拦截会让远程调用静默变成一个布尔常量。
+            if ("equals".equals(methodName) && paramTypes.length == 1 && paramTypes[0] == Object.class) {
                 return proxy == args[0];
             }
 
