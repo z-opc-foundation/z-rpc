@@ -62,10 +62,21 @@ public class RpcClient {
             log.info("Connected to RPC server: {}:{}", host, port);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            releaseGroupAfterFailedConnect();
             throw new RuntimeException("Failed to connect to server", e);
         } catch (Exception e) {
+            releaseGroupAfterFailedConnect();
             throw new RuntimeException("Failed to connect to server: " + host + ":" + port, e);
         }
+    }
+
+    /**
+     * 构造期连接失败意味着这个对象永远不会被使用，也就没人会调 {@link #close()}：
+     * 不主动关掉，留下的就是一组永不退出的非守护 EventLoop 线程。
+     */
+    private void releaseGroupAfterFailedConnect() {
+        group.shutdownGracefully();
+        group = null;
     }
 
     /**

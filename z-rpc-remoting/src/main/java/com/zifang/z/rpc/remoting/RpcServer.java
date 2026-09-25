@@ -90,40 +90,54 @@ public class RpcServer {
      * 启动服务器
      * @param daemon true 表示以守护线程异步启动（不阻塞当前线程）
      */
-    public synchronized void start(boolean daemon) throws InterruptedException {
-        if (started) {
-            return;
+    public void start(boolean daemon) throws InterruptedException {
+        Channel bound;
+        synchronized (this) {
+            if (started) {
+                return;
+            }
+
+            bossGroup = new NioEventLoopGroup(1);
+            workerGroup = new NioEventLoopGroup();
+
+            ServerBootstrap bootstrap = new ServerBootstrap();
+            bootstrap.group(bossGroup, workerGroup)
+                    .channel(NioServerSocketChannel.class)
+                    .childHandler(new ChannelInitializer<SocketChannel>() {
+                        @Override
+                        protected void initChannel(SocketChannel ch) {
+                            ChannelPipeline pipeline = ch.pipeline();
+                            pipeline.addLast(new RpcMessageDecoder());
+                            pipeline.addLast(new RpcMessageEncoder());
+                            pipeline.addLast(new RpcServerHandler(serviceMap));
+                        }
+                    })
+                    .option(ChannelOption.SO_BACKLOG, 128)
+                    .childOption(ChannelOption.SO_KEEPALIVE, true)
+                    .childOption(ChannelOption.TCP_NODELAY, true);
+
+            ChannelFuture future;
+            try {
+                future = bootstrap.bind(host, port).sync();
+            } catch (Throwable t) {
+                // 两组 EventLoopGroup 已经建好；绑定失败不关，就是永不退出的非守护线程
+                bossGroup.shutdownGracefully();
+                workerGroup.shutdownGracefully();
+                bossGroup = null;
+                workerGroup = null;
+                throw t;
+            }
+            bound = future.channel();
+            channel = bound;
+            started = true;
+            log.info("RPC Server started on {}:{}", host, port);
         }
-
-        bossGroup = new NioEventLoopGroup(1);
-        workerGroup = new NioEventLoopGroup();
-
-        ServerBootstrap bootstrap = new ServerBootstrap();
-        bootstrap.group(bossGroup, workerGroup)
-                .channel(NioServerSocketChannel.class)
-                .childHandler(new ChannelInitializer<SocketChannel>() {
-                    @Override
-                    protected void initChannel(SocketChannel ch) {
-                        ChannelPipeline pipeline = ch.pipeline();
-                        pipeline.addLast(new RpcMessageDecoder());
-                        pipeline.addLast(new RpcMessageEncoder());
-                        pipeline.addLast(new RpcServerHandler(serviceMap));
-                    }
-                })
-                .option(ChannelOption.SO_BACKLOG, 128)
-                .childOption(ChannelOption.SO_KEEPALIVE, true)
-                .childOption(ChannelOption.TCP_NODELAY, true);
-
-        ChannelFuture future = bootstrap.bind(host, port).sync();
-        channel = future.channel();
-        started = true;
-        log.info("RPC Server started on {}:{}", host, port);
 
         if (daemon) {
             // 守护线程：把 closeFuture 移到独立线程，避免阻塞调用方
             serverThread = new Thread(() -> {
                 try {
-                    channel.closeFuture().await();
+                    bound.closeFuture().await();
                 } catch (InterruptedException ignored) {
                     Thread.currentThread().interrupt();
                 } finally {
@@ -133,8 +147,9 @@ public class RpcServer {
             serverThread.setDaemon(true);
             serverThread.start();
         } else {
-            // 阻塞模式
-            channel.closeFuture().await();
+            // 阻塞模式：await 必须在监视器之外，否则 stop() 永远拿不到锁，
+            // 而 ServiceConfig 正是用一个常驻线程走这条分支的。
+            bound.closeFuture().await();
             stop();
         }
     }
