@@ -25,6 +25,12 @@ public class RpcServer {
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
     private Channel channel;
+    /**
+     * 真实绑到的端口，0 表示还没绑过。绑完之后 {@link #getPort()} 以它为准：
+     * 传 0 让内核挑端口时配置值永远是 0，而调用方（含 starter 的启动日志）读的就是
+     * {@code getPort()}。
+     */
+    private volatile int boundPort;
     private volatile boolean started = false;
     private Thread serverThread;
 
@@ -129,8 +135,12 @@ public class RpcServer {
             }
             bound = future.channel();
             channel = bound;
+            java.net.SocketAddress local = bound.localAddress();
+            if (local instanceof java.net.InetSocketAddress) {
+                boundPort = ((java.net.InetSocketAddress) local).getPort();
+            }
             started = true;
-            log.info("RPC Server started on {}:{}", host, port);
+            log.info("RPC Server started on {}:{}", host, getPort());
         }
 
         if (daemon) {
@@ -194,7 +204,7 @@ public class RpcServer {
      * 获取端口
      */
     public int getPort() {
-        return port;
+        return boundPort != 0 ? boundPort : port;
     }
 
     public String getHost() {

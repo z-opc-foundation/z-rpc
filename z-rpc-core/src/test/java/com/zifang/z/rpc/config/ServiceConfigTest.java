@@ -89,7 +89,7 @@ class ServiceConfigTest {
         return cfg;
     }
 
-    /** RpcServer 没有"取真实绑定端口"的出口，只能从 channel 上量。 */
+    /** 真实绑定端口从 channel 上独立量：`getPort()` 正是被比对的那一侧，不能拿它当参照。 */
     private static int boundPort(RpcServer server) throws Exception {
         Field f = RpcServer.class.getDeclaredField("channel");
         f.setAccessible(true);
@@ -231,13 +231,18 @@ class ServiceConfigTest {
             assertTrue(actual > 0, "内核分配的真实端口应当 >0，实测 " + actual);
             assertEquals(0, cfg.getServiceUrl().getPort(),
                     "真实监听在 " + actual + "，注册地址却写着 0 —— 谁都连不上");
-            assertEquals(0, server.getPort(), "RpcServer.getPort() 也只是把构造参数原样吐回来");
 
             // 猎物：知道真实端口之后，同一个服务立刻可被消费
             ReferenceConfig<Echo> ref = new ReferenceConfig<>();
             ref.setInterfaceClass(Echo.class);
             ref.setUrl("z-rpc://127.0.0.1:" + actual);
             assertEquals("echo:auto", ref.get().say("auto"));
+
+            // getPort() 的一半已经修了（§7 第 27 行）：绑 0 之后它交回真实端口，
+            // starter 的启动日志也不再打印 :0。但这句话仍然成立，因为上面那条断言量的
+            // 是 serviceUrl —— 真实端口从没被回填进要发布/注册的那条 URL。
+            assertEquals(actual, server.getPort(),
+                    "getPort() 应当交回内核挑的那个端口，实收 " + server.getPort());
         } finally {
             cfg.unexport();
         }

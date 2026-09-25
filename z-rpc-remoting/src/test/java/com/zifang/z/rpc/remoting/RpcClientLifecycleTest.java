@@ -37,10 +37,16 @@ class RpcClientLifecycleTest {
         }
     }
 
-    private static int freePort() throws IOException {
-        try (ServerSocket s = new ServerSocket(0)) {
-            return s.getLocalPort();
-        }
+    /**
+     * 一个"必然没人听着"的地址：低端口以普通用户 bind 会被拒（本机实测 errno 13），
+     * 所以不用先探一个空闲端口再关掉 —— 探针关闭到真正使用之间端口可能被人抢走，
+     * 这条 race 在本套用例里实测红过一次。前提由用例自己断言，见 {@code failedConnectThrows}。
+     */
+    private static final int DEAD_PORT = 1;
+
+    /** 绑一个真在听的口并交还句柄；端口交给内核挑，读回真实端口，不猜。 */
+    private static ServerSocket listeningSocket() throws IOException {
+        return new ServerSocket(0, 50, java.net.InetAddress.getByName("127.0.0.1"));
     }
 
     /** Netty 线程名 {@code nioEventLoopGroup-<poolId>-<serial>}；poolId 全局递增，用它认"这次新建的组"。 */
@@ -85,18 +91,24 @@ class RpcClientLifecycleTest {
     @Test
     @DisplayName("构造即连接：连不上抛 RuntimeException，消息带着 host:port")
     void failedConnectThrows() throws Exception {
-        int port = freePort();
-        RuntimeException e = assertThrows(RuntimeException.class,
-                () -> new RpcClient("127.0.0.1", port));
-        assertTrue(e.getMessage().contains("Failed to connect to server"), "实际: " + e.getMessage());
-        assertTrue(e.getMessage().contains("127.0.0.1:" + port), "实际: " + e.getMessage());
+        // 先自证量具前提：这个端口谁都绑不上，于是"连不上"不是运气
+        assertThrows(IOException.class,
+                () -> new ServerSocket(DEAD_PORT, 50, java.net.InetAddress.getByName("127.0.0.1")),
+                "前提不成立：127.0.0.1:" + DEAD_PORT + " 竟然能绑上，这条用例的失败连接不作数");
 
-        // 猎物：换一个真在听的端口，同一个构造调用就成功了
-        RpcServer server = new RpcServer("127.0.0.1", port);
+        RuntimeException e = assertThrows(RuntimeException.class,
+                () -> new RpcClient("127.0.0.1", DEAD_PORT));
+        assertTrue(e.getMessage().contains("Failed to connect to server"), "实际: " + e.getMessage());
+        assertTrue(e.getMessage().contains("127.0.0.1:" + DEAD_PORT), "实际: " + e.getMessage());
+
+        // 猎物：换一个真在听的端口，同一个构造调用就成功了。绑 0，端口由内核挑、再读回来
+        RpcServer server = new RpcServer("127.0.0.1", 0);
         server.registerService(Greeter.class, new GreeterImpl());
         server.start(true);
         try {
-            RpcClient ok = new RpcClient("127.0.0.1", port);
+            assertTrue(server.getPort() > 0,
+                    "绑 0 之后 getPort() 必须交回真实端口，实收 " + server.getPort());
+            RpcClient ok = new RpcClient("127.0.0.1", server.getPort());
             assertTrue(ok.isConnected());
             ok.close();
         } finally {
@@ -107,9 +119,8 @@ class RpcClientLifecycleTest {
     @Test
     @DisplayName("连接失败不许把 EventLoopGroup 留在场上")
     void failedConnectReleasesItsEventLoopGroup() throws Exception {
-        int port = freePort();
         int before = watermark();
-        assertThrows(RuntimeException.class, () -> new RpcClient("127.0.0.1", port));
+        assertThrows(RuntimeException.class, () -> new RpcClient("127.0.0.1", DEAD_PORT));
 
         // shutdownGracefully 有 2s quiet period，轮询而不是硬等
         awaitPoolIdsAtMost(before, 8000);
@@ -122,8 +133,8 @@ class RpcClientLifecycleTest {
     void closedClientReleasesItsEventLoopGroup() throws Exception {
         // 只借一个能完成 TCP 握手的监听口：不引入 RpcServer 的 EventLoopGroup，
         // 否则"poolId 比水位大"就不只属于被测 client 那一组了。
-        int port = freePort();
-        try (ServerSocket listener = new ServerSocket(port)) {
+        try (ServerSocket listener = listeningSocket()) {
+            int port = listener.getLocalPort();
             int before = watermark();
             RpcClient client = new RpcClient("127.0.0.1", port);
             assertTrue(client.isConnected(), "前提：连接真的建起来了");
@@ -142,11 +153,10 @@ class RpcClientLifecycleTest {
     @Test
     @DisplayName("close() 之后再发请求：立刻 IllegalStateException，而不是等超时")
     void sendAfterCloseFailsFast() throws Exception {
-        int port = freePort();
-        RpcServer server = new RpcServer("127.0.0.1", port);
+        RpcServer server = new RpcServer("127.0.0.1", 0);
         server.registerService(Greeter.class, new GreeterImpl());
         server.start(true);
-        RpcClient client = new RpcClient("127.0.0.1", port);
+        RpcClient client = new RpcClient("127.0.0.1", server.getPort());
         try {
             RpcRequest req = new RpcRequest();
             req.setRequestId("req-1");
@@ -181,11 +191,12 @@ class RpcClientLifecycleTest {
     @Test
     @DisplayName("invoke() 成功时把值放进 Result，失败时放进 error Result —— 从不抛")
     void invokeSpeaksInResultsNotExceptions() throws Exception {
-        int port = freePort();
-        RpcServer server = new RpcServer("127.0.0.1", port);
+        RpcServer server = new RpcServer("127.0.0.1", 0);
         server.registerService(Greeter.class, new GreeterImpl());
         server.start(true);
+        int port = server.getPort();
         RpcClient client = new RpcClient("127.0.0.1", port);
+        assertTrue(port > 0, "端口没读回来，后面的 URL 会指向 0: " + port);
         try {
             Result good = client.invoke(new RpcInvocation(Greeter.class.getName(), "hello",
                     new Class<?>[0], new Object[0]), url(Greeter.class.getName(), port));

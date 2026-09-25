@@ -94,6 +94,21 @@ public class RpcServerHandler extends SimpleChannelInboundHandler<RpcRequest> {
     }
 
     private Method findMethod(Class<?> clazz, String methodName, Class<?>[] paramTypes) {
+        // parameterTypes 是从线上请求里取来的，属于系统边界：整组为 null、或数组里含
+        // null 元素时，签名一律视为不可用，让它干净地落到 "Method not found"。
+        // 不挡的话兜底扫描会在这两处踩空 —— getMethod(name, null) 在 JDK 9+ 只抛
+        // NoSuchMethodException（不再 NPE），于是走进下面的循环，比较参数个数时对 null
+        // 数组取 .length 抛一条 NPE，参数数组里含 null 元素时是对 null 调
+        // isAssignableFrom 抛一条 message 为 null 的 NPE —— 消费端拿到的错误说明
+        // 里既没有方法名也没有签名，认不出是哪一次调用出的问题。
+        if (paramTypes == null) {
+            return null;
+        }
+        for (Class<?> paramType : paramTypes) {
+            if (paramType == null) {
+                return null;
+            }
+        }
         try {
             return clazz.getMethod(methodName, paramTypes);
         } catch (NoSuchMethodException e) {
