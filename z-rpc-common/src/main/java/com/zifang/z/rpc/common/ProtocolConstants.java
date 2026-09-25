@@ -19,8 +19,13 @@ public final class ProtocolConstants {
 
     /**
      * 消息头长度（字节）
+     * <p>
+     * 与 {@code ZRpcMessageEncoder} 实际写入的定长头严格对齐：
+     * 4 魔数 + 1 版本 + 1 消息类型 + 1 序列化ID + 1 压缩 + 2 状态码
+     * + 8 请求ID + 4 Body长度 + 2 Header长度 + 2 保留 = 26。
+     * 这个值是解码器"够不够一帧"的门限，写小了会在 24/25 字节的半包上越界。
      */
-    public static final int HEADER_LENGTH = 24;
+    public static final int HEADER_LENGTH = 26;
 
     // ====================== 消息类型 ======================
 

@@ -49,9 +49,9 @@ public class ZRpcReferenceInjector implements InstantiationAwareBeanPostProcesso
     private void injectField(Field field, Object bean) {
         ZRpcReference annotation = field.getAnnotation(ZRpcReference.class);
         if (annotation == null) return;
-        if (!field.canAccess(bean)) {
-            field.setAccessible(true);
-        }
+        // setAccessible(true) 在 JDK 8 与 9+ 上都成立；Field#canAccess(Object) 是 JDK 9 API，
+        // 而本模块只声明 source/target=8（没有 --release），留着它会在真 JDK 8 上 NoSuchMethodError。
+        field.setAccessible(true);
         try {
             ReferenceConfig<?> config = buildReferenceConfig(annotation, field.getType());
             Object proxy = config.get();
@@ -89,6 +89,10 @@ public class ZRpcReferenceInjector implements InstantiationAwareBeanPostProcesso
         config.setLoadbalance(annotation.loadbalance());
         config.setCluster(annotation.cluster());
         config.setRegistry(annotation.registry());
+        // ReferenceConfig 明明有 setAsync/setOneway（420-432 行），此前却被无声丢弃，
+        // 导致 README 里的 @ZRpcReference(async = true) 没有任何异步效果。
+        config.setAsync(annotation.async());
+        config.setOneway(annotation.oneway());
         if (annotation.url() != null && !annotation.url().isEmpty()) {
             config.setUrl(annotation.url());
         }

@@ -1,1 +1,2 @@
-com.zifang.z.rpc.starter.config.ZRpcAutoConfiguration
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+  com.zifang.z.rpc.starter.config.ZRpcAutoConfiguration

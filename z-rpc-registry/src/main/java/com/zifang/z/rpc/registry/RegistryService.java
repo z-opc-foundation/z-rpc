@@ -1,6 +1,7 @@
 package com.zifang.z.rpc.registry;
 
 import com.zifang.z.rpc.common.URL;
+import com.zifang.z.rpc.spi.SPI;
 
 import java.util.List;
 
@@ -8,6 +9,7 @@ import java.util.List;
  * 注册中心服务接口
  * 提供服务注册、发现、订阅功能
  */
+@SPI("in-memory")
 public interface RegistryService {
 
     /**

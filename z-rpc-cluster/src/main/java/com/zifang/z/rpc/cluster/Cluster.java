@@ -2,11 +2,13 @@ package com.zifang.z.rpc.cluster;
 
 import com.zifang.z.rpc.common.URL;
 import com.zifang.z.rpc.invoke.Invoker;
+import com.zifang.z.rpc.spi.SPI;
 
 /**
  * 集群接口
  * 负责将多个 Invoker 组合成一个可高可用的 Invoker
  */
+@SPI("failover")
 public interface Cluster {
 
     /**

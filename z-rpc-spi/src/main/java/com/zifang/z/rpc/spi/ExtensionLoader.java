@@ -170,6 +170,8 @@ public class ExtensionLoader<T> {
     public List<T> getActivateExtension(String... groups) {
         List<T> exts = new ArrayList<>();
         List<String> names = new ArrayList<>();
+        // cachedActivates 只有在扩展类被解析之后才会填充；不先触发加载的话冷加载器永远返回空表
+        getExtensionClasses();
         for (String group : groups) {
             Map<String, Class<?>> map = cachedActivates.get(group);
             if (map != null) {

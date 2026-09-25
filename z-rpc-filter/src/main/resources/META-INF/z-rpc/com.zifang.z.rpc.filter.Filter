@@ -1,0 +1,4 @@
+consumer-trace=com.zifang.z.rpc.filter.ConsumerTraceFilter
+monitor=com.zifang.z.rpc.filter.MonitorFilter
+provider-context=com.zifang.z.rpc.filter.ProviderContextFilter
+provider-monitor=com.zifang.z.rpc.filter.ProviderMonitorFilter

@@ -3,6 +3,7 @@ package com.zifang.z.rpc.loadbalance;
 import com.zifang.z.rpc.common.URL;
 import com.zifang.z.rpc.invoke.Invocation;
 import com.zifang.z.rpc.invoke.Invoker;
+import com.zifang.z.rpc.spi.SPI;
 
 import java.util.List;
 
@@ -10,6 +11,7 @@ import java.util.List;
  * 负载均衡接口
  * 参考 Dubbo 的 LoadBalance 设计
  */
+@SPI("random")
 public interface LoadBalance {
 
     /**

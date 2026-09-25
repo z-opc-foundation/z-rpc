@@ -1,17 +1,19 @@
 package com.zifang.z.rpc.annotation;
 
-import org.springframework.beans.factory.annotation.Autowired;
-
 import java.lang.annotation.*;
 
 /**
  * Z-RPC 服务引用注解
  * 用于注入远程服务代理
+ * <p>
+ * 注意：这里<b>不</b>元标注 {@code @Autowired}。字段的代理由
+ * {@code ZRpcReferenceInjector} 按注解属性构造，若再让 Spring 的
+ * {@code AutowiredAnnotationBeanPostProcessor} 按类型抢先注入，
+ * 轻则双写同一字段、重则因容器里没有该接口的 Bean 而启动失败。
  */
 @Target({ElementType.FIELD, ElementType.METHOD, ElementType.ANNOTATION_TYPE})
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
-@Autowired
 public @interface ZRpcReference {
 
     /**

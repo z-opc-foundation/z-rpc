@@ -18,7 +18,7 @@ import com.zifang.z.rpc.api.Protocol;
 @Configuration
 @ConditionalOnProperty(prefix = "z.rpc", name = "enabled", matchIfMissing = true)
 @EnableConfigurationProperties(ZRpcProperties.class)
-@Import({ZRpcServerAutoConfiguration.class, ZRpcConsumerAutoConfiguration.class, ZRpcRegistryAutoConfiguration.class, ZRpcServiceExporter.class})
+@Import({ZRpcServerAutoConfiguration.class, ZRpcConsumerAutoConfiguration.class, ZRpcRegistryAutoConfiguration.class, ZRpcServiceExporter.class, ZRpcReferenceInjector.class})
 public class ZRpcAutoConfiguration {
 
     private static final Logger log = LogManager.getLogger(ZRpcAutoConfiguration.class);

@@ -5,6 +5,7 @@ import com.zifang.z.rpc.api.Protocol;
 import com.zifang.z.rpc.common.ProtocolConstants;
 import com.zifang.z.rpc.common.URL;
 import com.zifang.z.rpc.invoke.Invoker;
+import com.zifang.z.rpc.remoting.RpcClient;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -77,11 +78,17 @@ public class ZRpcProtocolImpl implements Protocol {
 
     /**
      * Z-RPC 客户端 Invoker
+     * <p>
+     * 消费链路委托给 {@link RpcClient}：首次调用时按 provider URL 的 host:port 建立连接，
+     * 之后复用同一条连接。连接建立失败按调用失败处理（返回 error result），
+     * 不在 {@code refer()} 阶段抛出。
      */
     public static class ZRpcInvoker<T> implements Invoker<T> {
         private final Class<T> type;
         private final URL url;
         private final URL consumerUrl;
+        private final Object clientLock = new Object();
+        private volatile RpcClient client;
 
         public ZRpcInvoker(Class<T> type, URL url, URL consumerUrl) {
             this.type = type;
@@ -94,12 +101,32 @@ public class ZRpcProtocolImpl implements Protocol {
             return type;
         }
 
+        private RpcClient client() {
+            RpcClient c = client;
+            if (c == null) {
+                synchronized (clientLock) {
+                    c = client;
+                    if (c == null) {
+                        c = new RpcClient(url.getHost(), url.getPort());
+                        client = c;
+                    }
+                }
+            }
+            return c;
+        }
+
         @Override
         public com.zifang.z.rpc.invoke.Result invoke(com.zifang.z.rpc.invoke.Invocation invocation) {
-            // 简化实现：实际生产中这里会通过 NettyClient 发送 ZRpcMessage
-            // 等待响应并反序列化
-            return new com.zifang.z.rpc.invoke.Result.RpcResult("Z-RPC invocation result for "
-                    + invocation.getMethodName() + " on " + type.getName());
+            try {
+                return client().invoke(invocation, url);
+            } catch (Throwable t) {
+                return com.zifang.z.rpc.invoke.Result.error(
+                        t instanceof com.zifang.z.rpc.common.RpcException
+                                ? (com.zifang.z.rpc.common.RpcException) t
+                                : com.zifang.z.rpc.common.RpcException.network(
+                                        "Failed to invoke " + invocation.getMethodName()
+                                                + " on " + url.getHost() + ":" + url.getPort(), t));
+            }
         }
 
         @Override
@@ -109,11 +136,19 @@ public class ZRpcProtocolImpl implements Protocol {
 
         @Override
         public boolean isAvailable() {
-            return true;
+            RpcClient c = client;
+            return c != null && c.isConnected();
         }
 
         @Override
         public void destroy() {
+            synchronized (clientLock) {
+                RpcClient c = client;
+                client = null;
+                if (c != null) {
+                    c.close();
+                }
+            }
         }
 
         public URL getConsumerUrl() {

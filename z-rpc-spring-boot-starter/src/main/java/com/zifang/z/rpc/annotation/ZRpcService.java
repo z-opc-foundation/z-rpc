@@ -1,14 +1,21 @@
 package com.zifang.z.rpc.annotation;
 
+import org.springframework.stereotype.Component;
+
 import java.lang.annotation.*;
 
 /**
  * Z-RPC 服务注解
  * 标记一个类为 RPC 服务实现
+ * <p>
+ * 本注解元标注 {@link Component}：只写 {@code @ZRpcService} 的类就应当成为 Bean
+ * 并被导出，否则 javadoc 里"标记一个类为 RPC 服务实现"这句话不成立
+ * （导出器是 {@code BeanPostProcessor}，只对已经在容器里的 Bean 生效）。
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
+@Component
 public @interface ZRpcService {
 
     /**

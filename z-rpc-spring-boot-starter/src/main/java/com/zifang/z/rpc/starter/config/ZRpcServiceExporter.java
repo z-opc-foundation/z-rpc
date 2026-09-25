@@ -7,9 +7,11 @@ import org.apache.logging.log4j.Logger;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
+import org.springframework.util.ClassUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -30,28 +32,44 @@ public class ZRpcServiceExporter implements BeanPostProcessor {
 
     @Override
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
-        ZRpcService annotation = bean.getClass().getAnnotation(ZRpcService.class);
+        // 必须先看"真实类"：CGLIB 代理子类的 getAnnotation 读不到父类上的注解，
+        // 而它的 getInterfaces() 返回的是 SpringProxy/Advised 这类标记接口，
+        // 拿它当服务名会把业务接口导出成一个没人认识的键。
+        Class<?> userClass = ClassUtils.getUserClass(bean);
+        ZRpcService annotation = AnnotatedElementUtils.findMergedAnnotation(userClass, ZRpcService.class);
         if (annotation == null) return bean;
 
-        Class<?> interfaceClass = annotation.interfaceClass();
-        if (interfaceClass == void.class) {
-            Class<?>[] ifs = bean.getClass().getInterfaces();
-            if (ifs.length > 0) {
-                interfaceClass = ifs[0];
-            } else {
-                log.warn("[ZRpcService] {} has no interfaces, skipping", beanName);
-                return bean;
+        List<Class<?>> interfaces = new ArrayList<Class<?>>();
+        if (annotation.interfaceClass() != void.class) {
+            interfaces.add(annotation.interfaceClass());
+        } else {
+            // javadoc 承诺"不指定则使用该类实现的所有接口"，所以这里是全量而非 [0]
+            for (Class<?> iface : ClassUtils.getAllInterfacesForClass(userClass)) {
+                if (iface.getName().startsWith("java.") || iface.getName().startsWith("org.springframework.")) {
+                    continue;
+                }
+                interfaces.add(iface);
             }
         }
+        if (interfaces.isEmpty()) {
+            log.warn("[ZRpcService] {} has no interfaces, skipping", beanName);
+            return bean;
+        }
 
-        final Class<?> finalInterfaceClass = interfaceClass;
-        final String finalBeanName = beanName;
+        for (Class<?> iface : interfaces) {
+            export(bean, beanName, iface, annotation.version());
+        }
+        return bean;
+    }
+
+    private void export(final Object bean, final String beanName,
+                        final Class<?> interfaceClass, final String version) {
         Runnable task = () -> {
             try {
-                rpcServer.register(finalInterfaceClass, bean, annotation.version());
-                log.info("[ZRpcService] exported {} -> {}", finalBeanName, finalInterfaceClass.getName());
+                rpcServer.register(interfaceClass, bean, version);
+                log.info("[ZRpcService] exported {} -> {}", beanName, interfaceClass.getName());
             } catch (Exception e) {
-                log.error("[ZRpcService] failed to export " + finalBeanName, e);
+                log.error("[ZRpcService] failed to export " + beanName, e);
             }
         };
 
@@ -63,7 +81,6 @@ public class ZRpcServiceExporter implements BeanPostProcessor {
                 pendingRegistrations.add(task);
             }
         }
-        return bean;
     }
 
     @EventListener(ContextRefreshedEvent.class)

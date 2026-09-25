@@ -53,14 +53,30 @@ public class RpcServer {
     }
 
     /**
-     * 注册服务（带版本）：
-     * 默认同时按 {serviceInterface}:{version} 与 {serviceInterface} 两种 key 注册，便于客户端按版本或非版本查找。
+     * 服务在 {@code serviceMap} 里的唯一键：带版本时是 {@code {interface}:{version}}，
+     * 不带版本时退化为裸接口名。注册与查找必须共用这一个函数，否则两边拼不出同一个键。
+     */
+    public static String serviceKey(String interfaceName, String version) {
+        if (version == null || version.isEmpty()) {
+            return interfaceName;
+        }
+        return interfaceName + ":" + version;
+    }
+
+    /**
+     * 注册服务（带版本）：按 {@code {serviceInterface}:{version}} 精确登记。
+     * <p>
+     * 不再额外写一份裸接口名别名：那会让"同接口多版本"退化成"第一个版本冒充默认实现"，
+     * 正是本方法修掉的那个缺陷。不带版本的 Provider 请走
+     * {@link #registerService(Class, Object)}。
      */
     public void register(Class<?> serviceInterface, Object serviceImpl, String version) {
-        registerService(serviceInterface, serviceImpl);
-        if (version != null && !version.isEmpty() && !"1.0.0".equals(version)) {
-            // 暂不区分多版本；保留接口以便未来扩展
+        if (version == null || version.isEmpty()) {
+            registerService(serviceInterface, serviceImpl);
+            return;
         }
+        serviceMap.put(serviceKey(serviceInterface.getName(), version), serviceImpl);
+        log.info("Registered service: {}:{}", serviceInterface.getName(), version);
     }
 
     /**

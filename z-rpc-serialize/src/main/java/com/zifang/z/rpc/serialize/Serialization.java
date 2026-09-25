@@ -1,6 +1,7 @@
 package com.zifang.z.rpc.serialize;
 
 import com.zifang.z.rpc.common.ProtocolConstants;
+import com.zifang.z.rpc.spi.SPI;
 
 /**
  * 序列化器接口
@@ -9,6 +10,7 @@ import com.zifang.z.rpc.common.ProtocolConstants;
  * <p>
  * 资源文件：META-INF/z-rpc/com.zifang.z.rpc.serialize.Serialization
  */
+@SPI("hessian2")
 public interface Serialization {
 
     /**

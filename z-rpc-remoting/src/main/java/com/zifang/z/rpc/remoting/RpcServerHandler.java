@@ -32,9 +32,15 @@ public class RpcServerHandler extends SimpleChannelInboundHandler<RpcRequest> {
         response.setRequestId(request.getRequestId());
 
         try {
-            // 获取服务实例
+            // 服务查找必须与 RpcServer.register 用同一个拼键函数。
+            // 先按 {interface}:{version} 精确匹配；只有该接口没有任何带版本登记时，
+            // 才退回 registerService() 留下的裸接口名条目。
             String serviceName = request.getInterfaceName();
-            Object service = serviceMap.get(serviceName);
+            String version = request.getVersion();
+            Object service = serviceMap.get(RpcServer.serviceKey(serviceName, version));
+            if (service == null && version != null && !version.isEmpty()) {
+                service = serviceMap.get(serviceName);
+            }
 
             if (service == null) {
                 throw new RuntimeException("Service not found: " + serviceName);
