@@ -85,15 +85,23 @@ public class ZRpcServiceExporter implements BeanPostProcessor {
 
     @EventListener(ContextRefreshedEvent.class)
     public void onContextRefreshed() {
+        List<Runnable> tasks;
+        synchronized (pendingRegistrations) {
+            if (pendingRegistrations.isEmpty()) {
+                return;
+            }
+            tasks = new ArrayList<Runnable>(pendingRegistrations);
+            pendingRegistrations.clear();
+        }
         if (rpcServer == null) {
-            log.info("[ZRpcService] no RpcServer available, skipping pending registrations");
+            // 上下文刷新完还没有 RpcServer，就再也不会有了：这些 Runnable 各自强引用一个业务 bean，
+            // 留在队列里等于把整个 bean 拽住不放，而它们本来一条也执行不了。
+            log.error("[ZRpcService] no RpcServer in this context; dropped {} pending registration(s), "
+                    + "none of them are exported over RPC", tasks.size());
             return;
         }
-        synchronized (pendingRegistrations) {
-            for (Runnable task : pendingRegistrations) {
-                task.run();
-            }
-            pendingRegistrations.clear();
+        for (Runnable task : tasks) {
+            task.run();
         }
     }
 }

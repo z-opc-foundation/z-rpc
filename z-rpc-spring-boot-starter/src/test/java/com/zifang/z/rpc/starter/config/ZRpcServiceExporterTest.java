@@ -3,12 +3,15 @@ package com.zifang.z.rpc.starter.config;
 import com.zifang.z.rpc.annotation.ZRpcService;
 import com.zifang.z.rpc.remoting.RpcServer;
 import com.zifang.z.rpc.starter.AnnotationContract;
+import com.zifang.z.rpc.starter.properties.ZRpcProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import java.lang.reflect.Field;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -281,26 +284,95 @@ class ZRpcServiceExporterTest {
     }
 
     @Test
-    @DisplayName("bug_rpcServer_始终为_null_时待注册队列永不清空（持有 Bean 引用）")
-    void bug_pendingQueueLeaksWhenNoServer() throws Exception {
+    @DisplayName("rpcServer 始终为 null 时：队列必须被排空，且不会因后来出现的服务端复活")
+    void pendingQueueIsDrainedWhenNoServer() throws Exception {
         ZRpcServiceExporter exporter = new ZRpcServiceExporter();
         exporter.postProcessAfterInitialization(new AlphaImpl(), "alphaImpl");
-        exporter.onContextRefreshed();
 
-        Object pending = readPending(exporter);
-        assertNotNull(pending,
-                "队列里没有任务 => 这条测试是空跑，请先确认 postProcess 真的入队了");
-        // 实际行为：onContextRefreshed 遇到 rpcServer==null 直接 return，
-                // 队列里的 Runnable 连同其中的 bean 引用被永久保留。
-        assertTrue(pending.toString().contains("ZRpcServiceExporter"),
-                "队列应仍持有 lambda: " + pending);
+        List<?> armed = pendingListOf(exporter);
+        assertFalse(armed.isEmpty(),
+                "猎物不在场 => 这条测试是空跑，请先确认 postProcess 在 rpcServer 为 null 时真的入队了");
+        assertEquals(1, armed.size(), "Alpha 只有一个接口，应当只有一条待注册任务");
+
+        exporter.onContextRefreshed();
+        assertTrue(pendingListOf(exporter).isEmpty(),
+                "上下文刷新完之后队列还留着任务：那些 Runnable 各自强引用一个业务 bean，而它们已经不可能执行");
+
+        // 排空是一次性的：事后补一台服务端，也不该把已经判定丢弃的注册复活
+        RpcServer late = new RpcServer("127.0.0.1", AnnotationContract.freePort());
+        try {
+            Field f = ZRpcServiceExporter.class.getDeclaredField("rpcServer");
+            f.setAccessible(true);
+            f.set(exporter, late);
+            exporter.onContextRefreshed();
+            assertTrue(serviceMapOf(late).isEmpty(),
+                    "没有服务端时做出的『丢弃』判定不得被第二次事件悄悄撤销: " + serviceMapOf(late).keySet());
+        } finally {
+            late.stop();
+        }
     }
 
-    private Object readPending(ZRpcServiceExporter exporter) throws Exception {
+    private List<?> pendingListOf(ZRpcServiceExporter exporter) throws Exception {
         Field f = ZRpcServiceExporter.class.getDeclaredField("pendingRegistrations");
         f.setAccessible(true);
-        java.util.List<?> list = (java.util.List<?>) f.get(exporter);
-        return list.isEmpty() ? null : list;
+        return (List<?>) f.get(exporter);
+    }
+
+    private static Object serverFieldOf(ZRpcServiceExporter exporter) throws Exception {
+        Field f = ZRpcServiceExporter.class.getDeclaredField("rpcServer");
+        f.setAccessible(true);
+        return f.get(exporter);
+    }
+
+    @Test
+    @DisplayName("真容器里只装导出器、不带服务端装配：null 分支确实到得了，且刷完不复存在")
+    void serverlessContainerTakesTheQueueBranch() throws Exception {
+        AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext();
+        ctx.register(ZRpcServiceExporter.class, AlphaImpl.class);
+        ctx.refresh();
+        try {
+            assertEquals(0, ctx.getBeanNamesForType(RpcServer.class).length,
+                    "这一支的前提是容器里真的没有 RpcServer bean");
+            ZRpcServiceExporter exporter = ctx.getBean(ZRpcServiceExporter.class);
+            assertNull(serverFieldOf(exporter),
+                    "容器里没有服务端时 @Autowired(required = false) 给出 null —— 这就是那条分支可达的证据");
+
+            // 阳性对照：容器自己那趟 refresh 已经把 AlphaImpl 过了一遍导出器（队列入队后排空），
+            // 但"排空后为空"这条断言单独看分不清"没进来过"和"进来又被丢掉"，所以这里再手工喂一次，
+            // 证明同一个容器里的 bean 在同一条 null 状态下确实会入队。
+            exporter.postProcessAfterInitialization(ctx.getBean(AlphaImpl.class), "alphaImpl");
+            assertFalse(pendingListOf(exporter).isEmpty(),
+                    "真容器的 bean 在这条分支上应当入队；没入队就说明这条测试在空跑");
+            exporter.onContextRefreshed();
+            assertTrue(pendingListOf(exporter).isEmpty(),
+                    "排空断言：没有服务端时队列不能留着东西");
+        } finally {
+            ctx.close();
+        }
+    }
+
+    @Test
+    @DisplayName("server.enabled=false：BeanPostProcessor 仍把服务注册进一台从不监听的 server，日志写着 exported")
+    void exportIntoAnUnstartedServerLooksLikeSuccess() {
+        ZRpcProperties props = new ZRpcProperties();
+        props.getServer().setEnabled(false);
+        props.getServer().setPort(0);
+
+        AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext();
+        ctx.addBeanFactoryPostProcessor(bf -> bf.registerSingleton("zRpcProperties", props));
+        ctx.register(ZRpcServerAutoConfiguration.class, ZRpcServiceExporter.class, AlphaImpl.class);
+        ctx.refresh();
+        try {
+            RpcServer bean = ctx.getBean(RpcServer.class);
+            assertFalse(bean.isStarted(), "server.enabled=false 却不该监听");
+            Map<String, Object> exported = serviceMapOf(bean);
+            // 这条不是"预期如此"的断言，而是把实测形状钉住：修复它的与否是 §8 的决策项（N48）。
+            assertEquals(1, exported.size(),
+                    "实测形状：导出器把 AlphaImpl 注册进了一台 isStarted()=false 的服务端，"
+                            + "键 " + exported.keySet() + "，而它打的日志是 exported（静默失败）");
+        } finally {
+            ctx.close();
+        }
     }
 
     @Test
