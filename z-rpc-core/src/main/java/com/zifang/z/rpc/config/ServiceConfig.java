@@ -276,7 +276,13 @@ public class ServiceConfig<T> {
             waitCount++;
         }
 
-        log.info("RPC server started on port {}", port);
+        // 发布出去的地址必须是内核真正分配到的端口：绑 0 时 `serviceUrl` 里还写着 0，
+        // 注册中心收了这条地址谁就连不上。配置了固定端口时两者相等，行为不变。
+        if (rpcServer.isStarted()) {
+            serviceUrl.setPort(rpcServer.getPort());
+        }
+
+        log.info("RPC server started on port {}", rpcServer.isStarted() ? rpcServer.getPort() : port);
     }
 
     private void registerToRegistry() {

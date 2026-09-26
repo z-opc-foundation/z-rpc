@@ -138,8 +138,7 @@ class ServiceConfigTest {
     @Test
     @DisplayName("服务 URL 收下了全部配置项，但 weight 有两个互不相通的地方")
     void serviceUrlCarriesConfig() throws Exception {
-        int port = freePort();
-        ServiceConfig<Echo> cfg = config(port);
+        ServiceConfig<Echo> cfg = config(0);
         cfg.setVersion("5.0.0");
         cfg.setGroup("grp");
         cfg.setWeight(300);
@@ -153,7 +152,8 @@ class ServiceConfigTest {
             URL u = cfg.getServiceUrl();
             assertEquals("thrift", u.getProtocol());
             assertEquals("127.0.0.1", u.getHost());
-            assertEquals(port, u.getPort());
+            assertEquals(cfg.getRpcServer().getPort(), u.getPort(),
+                    "URL 里的端口必须等于内核真正分配的那个");
             assertEquals(Echo.class.getName(), u.getServiceInterface());
             assertEquals("grp", u.getGroup());
             assertEquals("5.0.0", u.getVersion());
@@ -176,8 +176,7 @@ class ServiceConfigTest {
     @Test
     @DisplayName("bug_versionNeverReachesTheServerRouteTable：注册地址带版本，路由表只有裸接口名")
     void bug_versionIsDroppedOnRegistration() throws Exception {
-        int port = freePort();
-        ServiceConfig<Echo> cfg = config(port);
+        ServiceConfig<Echo> cfg = config(0);
         cfg.setVersion("5.0.0");
         cfg.export();
         try {
@@ -200,8 +199,7 @@ class ServiceConfigTest {
     @Test
     @DisplayName("bug_protocolSettingDoesNotChangeTheWire：写 thrift，跑的仍是自家 10 字节帧")
     void bug_protocolSettingDoesNotChangeTheFrame() throws Exception {
-        int port = freePort();
-        ServiceConfig<Echo> cfg = config(port);
+        ServiceConfig<Echo> cfg = config(0);
         cfg.setProtocol("thrift");
         cfg.export();
         try {
@@ -211,7 +209,7 @@ class ServiceConfigTest {
             // 消费者按默认协议来，一点不受"provider 声明了 thrift"的影响
             ReferenceConfig<Echo> ref = new ReferenceConfig<>();
             ref.setInterfaceClass(Echo.class);
-            ref.setUrl("z-rpc://127.0.0.1:" + port);
+            ref.setUrl("z-rpc://127.0.0.1:" + cfg.getServiceUrl().getPort());
             assertEquals("echo:hi", ref.get().say("hi"));
         } finally {
             cfg.unexport();
@@ -221,26 +219,25 @@ class ServiceConfigTest {
     // ---------- 导出与端口 ----------
 
     @Test
-    @DisplayName("bug_portZeroBindsSomewhereAndPublishesNothingUseful：监听成功，发布出去的地址却写着端口 0")
-    void bug_portZeroBindsSomewhereAndPublishesNothingUseful() throws Exception {
+    @DisplayName("绑 0 监听成功之后，发布出去的地址写的就是内核分配的真实端口")
+    void portZeroPublishesTheBoundPort() throws Exception {
         ServiceConfig<Echo> cfg = config(0);
         cfg.export();
         try {
             RpcServer server = cfg.getRpcServer();
             int actual = boundPort(server);
             assertTrue(actual > 0, "内核分配的真实端口应当 >0，实测 " + actual);
-            assertEquals(0, cfg.getServiceUrl().getPort(),
-                    "真实监听在 " + actual + "，注册地址却写着 0 —— 谁都连不上");
+            assertEquals(actual, cfg.getServiceUrl().getPort(),
+                    "监听在 " + actual + "，要发布/注册的那条 URL 就得写同一个端口，实收 "
+                            + cfg.getServiceUrl().getPort());
 
-            // 猎物：知道真实端口之后，同一个服务立刻可被消费
+            // 猎物：消费侧不再需要手工换端口 —— 照发布出去的那条地址就能打通
             ReferenceConfig<Echo> ref = new ReferenceConfig<>();
             ref.setInterfaceClass(Echo.class);
-            ref.setUrl("z-rpc://127.0.0.1:" + actual);
+            ref.setUrl("z-rpc://127.0.0.1:" + cfg.getServiceUrl().getPort());
             assertEquals("echo:auto", ref.get().say("auto"));
 
-            // getPort() 的一半已经修了（§7 第 27 行）：绑 0 之后它交回真实端口，
-            // starter 的启动日志也不再打印 :0。但这句话仍然成立，因为上面那条断言量的
-            // 是 serviceUrl —— 真实端口从没被回填进要发布/注册的那条 URL。
+            // getPort() 的另一半（§7 第 27 行）：绑 0 之后它交回真实端口，starter 日志不再打印 :0
             assertEquals(actual, server.getPort(),
                     "getPort() 应当交回内核挑的那个端口，实收 " + server.getPort());
         } finally {
@@ -287,8 +284,10 @@ class ServiceConfigTest {
     @Test
     @DisplayName("端口被占时绑定失败，不许留下永不退出的 Netty 线程")
     void failedBindShutsTheEventLoopGroupsDown() throws Exception {
-        int port = freePort();
-        try (ServerSocket occupied = new ServerSocket(port)) {
+        // 占位端口由自己 bind(0) 拿到并一直持有：探针式取号（探完关掉再去 bind）
+        // 在"关掉"与"占住"之间有抢端口窗口，别人抢先 bind 就等于这台没占住。
+        try (ServerSocket occupied = new ServerSocket(0)) {
+            int port = occupied.getLocalPort();
             int watermark = highestEventLoopPoolId();
             ServiceConfig<Echo> cfg = config(port);
             cfg.export();
@@ -346,8 +345,9 @@ class ServiceConfigTest {
     @Test
     @DisplayName("bug_exportReportsSuccessEvenWhenTheBindFailed：端口被占也标 exported=true")
     void bug_exportLiesWhenBindFails() throws Exception {
-        int port = freePort();
-        try (ServerSocket occupied = new ServerSocket(port)) {
+        // 同上：占位端口自己 bind(0) 并持有，"这个端口上还在听的是我"就不再有竞态
+        try (ServerSocket occupied = new ServerSocket(0)) {
+            int port = occupied.getLocalPort();
             ServiceConfig<Echo> cfg = config(port);
             long start = System.nanoTime();
             cfg.export();
@@ -365,7 +365,7 @@ class ServiceConfigTest {
     @Test
     @DisplayName("export() 幂等；unexport() 之后再 export() 才被封死")
     void exportIsIdempotentUntilUnexported() throws Exception {
-        ServiceConfig<Echo> cfg = config(freePort());
+        ServiceConfig<Echo> cfg = config(0);
         cfg.export();
         URL first = cfg.getServiceUrl();
         cfg.export();
@@ -395,8 +395,7 @@ class ServiceConfigTest {
     @Test
     @DisplayName("delay>0 时 export() 立刻返回，此时什么都还没建")
     void delayedExportReturnsBeforeAnythingExists() throws Exception {
-        int port = freePort();
-        ServiceConfig<Echo> cfg = config(port);
+        ServiceConfig<Echo> cfg = config(0);
         cfg.setDelay(400);
         cfg.export();
         try {
@@ -416,8 +415,7 @@ class ServiceConfigTest {
     @Test
     @DisplayName("bug_unexportDuringDelayWindowIsSwallowed：取消导出没拦住稍后才起来的服务器")
     void bug_unexportDuringDelayIsIgnored() throws Exception {
-        int port = freePort();
-        ServiceConfig<Echo> cfg = config(port);
+        ServiceConfig<Echo> cfg = config(0);
         cfg.setDelay(400);
         cfg.export();
         cfg.unexport();
@@ -428,7 +426,7 @@ class ServiceConfigTest {
 
         // 调用方已经"取消"了导出，端口却在这之后才绑上，且没人再管它
         assertTrue(cfg.getRpcServer().isStarted(), "延迟导出的线程不看 destroyed");
-        try (Socket s = new Socket("127.0.0.1", port)) {
+        try (Socket s = new Socket("127.0.0.1", cfg.getServiceUrl().getPort())) {
             assertTrue(s.isConnected());
         }
         cfg.unexport();
@@ -440,7 +438,7 @@ class ServiceConfigTest {
     @Test
     @DisplayName("bug_registrySettingOnlyProducesLogLines：设了 registry 也从未注册过")
     void bug_registrySettingNeverRegisters() throws Exception {
-        ServiceConfig<Echo> cfg = config(freePort());
+        ServiceConfig<Echo> cfg = config(0);
         cfg.setRegistry("127.0.0.1:8084");
         cfg.export();
         try {
@@ -453,7 +451,7 @@ class ServiceConfigTest {
 
         // 猎物：把实现交进去，同一个 export() 就真的会去注册
         SpyRegistry spy = new SpyRegistry();
-        ServiceConfig<Echo> wired = config(freePort());
+        ServiceConfig<Echo> wired = config(0);
         wired.setRegistry("127.0.0.1:8084");
         wired.setRegistryService(spy);
         wired.export();
@@ -470,7 +468,7 @@ class ServiceConfigTest {
     @DisplayName("没设 registry 时跳过注册，也不报错")
     void emptyRegistryIsSkippedQuietly() throws Exception {
         SpyRegistry spy = new SpyRegistry();
-        ServiceConfig<Echo> cfg = config(freePort());
+        ServiceConfig<Echo> cfg = config(0);
         cfg.setRegistryService(spy);
         cfg.export();
         try {
@@ -483,7 +481,7 @@ class ServiceConfigTest {
     @Test
     @DisplayName("setExported(true) 会让 export() 整个跳过：真实服务一台都不起")
     void bug_exportedFlagSetterSkipsTheWholeExport() throws Exception {
-        ServiceConfig<Echo> cfg = config(freePort());
+        ServiceConfig<Echo> cfg = config(0);
         cfg.setExported(true);
         cfg.export();
         assertTrue(cfg.isExported());

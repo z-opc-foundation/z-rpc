@@ -62,28 +62,18 @@ class ConsumerRoundTripE2ETest {
         }
     }
 
-    /** 起一个真实监听的服务端；端口被占用则换一个重试（freePort 与 bind 之间有竞态）。 */
+    /** 起一个真实监听的服务端：绑 0 由内核分配，端口从 {@code RpcServer.getPort()} 读回，
+     *  这样就没有"探测取号 → 真正 bind"之间的抢端口窗口，也就不需要重试。 */
     private int startServer(RegistrationConfigurer cfg) throws Exception {
-        int lastError = 0;
-        for (int attempt = 0; attempt < 3; attempt++) {
-            int port = freePort();
-            RpcServer s = new RpcServer("127.0.0.1", port);
-            cfg.apply(s);
-            try {
-                s.start(true);
-            } catch (Throwable bindFailed) {
-                lastError = port;
-                s.stop();
-                continue;
-            }
-            // 等监听真正就绪：第一次连接失败不代表缺陷，别让它变成抖动源
-            for (int i = 0; i < 50 && !s.isStarted(); i++) {
-                Thread.sleep(10);
-            }
-            server = s;
-            return port;
+        RpcServer s = new RpcServer("127.0.0.1", 0);
+        cfg.apply(s);
+        s.start(true);
+        // 等监听真正就绪：第一次连接失败不代表缺陷，别让它变成抖动源
+        for (int i = 0; i < 50 && !s.isStarted(); i++) {
+            Thread.sleep(10);
         }
-        throw new IllegalStateException("三次都占不到端口，最后: " + lastError);
+        server = s;
+        return s.getPort();
     }
 
     /** 只为了把"注册方式"延迟到拿到端口之后。 */

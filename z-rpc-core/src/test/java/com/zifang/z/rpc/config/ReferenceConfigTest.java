@@ -75,12 +75,6 @@ class ReferenceConfigTest {
         }
     }
 
-    private static int freePort() throws IOException {
-        try (ServerSocket s = new ServerSocket(0)) {
-            return s.getLocalPort();
-        }
-    }
-
     // ---------- 配置校验 ----------
 
     @Test
@@ -173,10 +167,10 @@ class ReferenceConfigTest {
     @Test
     @DisplayName("注册中心模式：手工接上进程内注册表后，真实 socket 往返拿到结果")
     void registryModeWorksWhenHandWired() throws Exception {
-        int port = freePort();
-        RpcServer server = new RpcServer("127.0.0.1", port);
+        RpcServer server = new RpcServer("127.0.0.1", 0);
         server.registerService(Greeter.class, new GreeterImpl());
         server.start(true);
+        int port = server.getPort();
         try {
             InMemoryRegistryService registry = new InMemoryRegistryService();
             URL provider = new URL("z-rpc", "127.0.0.1", port);
@@ -198,10 +192,10 @@ class ReferenceConfigTest {
     @Test
     @DisplayName("直连模式：一次真 socket 往返")
     void directModeRoundTrip() throws Exception {
-        int port = freePort();
-        RpcServer server = new RpcServer("127.0.0.1", port);
+        RpcServer server = new RpcServer("127.0.0.1", 0);
         server.registerService(Greeter.class, new GreeterImpl());
         server.start(true);
+        int port = server.getPort();
         try {
             ReferenceConfig<Greeter> ref = new ReferenceConfig<>();
             ref.setInterfaceClass(Greeter.class);

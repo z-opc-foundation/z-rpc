@@ -15,7 +15,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.lang.management.ManagementFactory;
-import java.net.ServerSocket;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
@@ -49,41 +48,29 @@ class CrossProcessE2ETest {
         return at > 0 ? name.substring(0, at) : name;
     }
 
-    private static int freePort() throws IOException {
-        ServerSocket socket = new ServerSocket(0);
-        try {
-            return socket.getLocalPort();
-        } finally {
-            socket.close();
-        }
-    }
-
-    /** 起一个子 JVM 直到它打出 READY；不成就把子进程吐出的全部内容写进异常消息。 */
+    /**
+     * 起一个子 JVM 直到它打出 READY；不成就把子进程吐出的全部内容写进异常消息。
+     * 交给子进程的端口一律是 0 —— 真实端口由内核分配，从 READY 行里读回来。
+     * （先前这里是"父进程探针取号、子进程去 bind"，两者之间有抢端口窗口，只能靠三次重试兜。）
+     */
     private void startChild() throws Exception {
-        List<String> tried = new ArrayList<String>();
-        for (int attempt = 0; attempt < 3; attempt++) {
-            int port = freePort();
-            String javaBin = System.getProperty("java.home") + File.separator + "bin" + File.separator + "java";
-            ProcessBuilder pb = new ProcessBuilder(javaBin, "-cp", System.getProperty("java.class.path"),
-                    CrossProcessProvider.class.getName(), String.valueOf(port), SERVICE);
-            pb.redirectErrorStream(true);
-            Process p = pb.start();
-            drain(p.getInputStream());
-            String ready = awaitReady(p, port, 20);
-            if (ready != null) {
-                child = p;
-                childPort = port;
-                return;
-            }
-            tried.add("端口 " + port + " 的输出:\n" + dumpChildOutput());
+        String javaBin = System.getProperty("java.home") + File.separator + "bin" + File.separator + "java";
+        ProcessBuilder pb = new ProcessBuilder(javaBin, "-cp", System.getProperty("java.class.path"),
+                CrossProcessProvider.class.getName(), "0", SERVICE);
+        pb.redirectErrorStream(true);
+        Process p = pb.start();
+        drain(p.getInputStream());
+        String ready = awaitReady(p, 20);
+        if (ready == null) {
+            String why = p.isAlive() ? "还在跑却没打出 READY" : "已退出，exit=" + p.exitValue();
             p.destroy();
-            p.waitFor(5, TimeUnit.SECONDS);
+            throw new IllegalStateException("子 JVM 没就绪（" + why + "），它吐出的全部内容:\n" + dumpChildOutput());
         }
-        throw new IllegalStateException("三次都拉不起子 JVM:\n" + join(tried));
+        child = p;
     }
 
-    /** 只在子进程还活着的时候等；端口被抢（BIND-FAILED）则返回 null 让上层换端口重试。 */
-    private String awaitReady(Process p, int port, int seconds) throws InterruptedException {
+    /** 只在子进程还活着的时候等；从 READY 行取回真实端口与 PID。 */
+    private String awaitReady(Process p, int seconds) throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
         while (System.nanoTime() < deadline && p.isAlive()) {
             String line = childLines.poll(500, TimeUnit.MILLISECONDS);
@@ -93,7 +80,9 @@ class CrossProcessE2ETest {
             if (line.startsWith("READY ")) {
                 String[] parts = line.split(" ");
                 assertEquals(3, parts.length, "READY 行形状不对: " + line);
-                assertEquals(String.valueOf(port), parts[1], "子进程报的端口对不上: " + line);
+                int reported = Integer.parseInt(parts[1]);
+                assertTrue(reported > 0 && reported < 65536, "READY 报的不是一个已分配的端口: " + line);
+                childPort = reported;
                 childPid = parts[2];
                 assertNotEquals(ownPid(), childPid, "子进程 PID 与本进程相同 —— 那就不算跨进程");
                 return line;
@@ -118,13 +107,6 @@ class CrossProcessE2ETest {
         return sb.toString();
     }
 
-    private static String join(List<String> in) {
-        StringBuilder sb = new StringBuilder();
-        for (String s : in) {
-            sb.append(s).append('\n');
-        }
-        return sb.toString();
-    }
 
     private void drain(final InputStream in) {
         Thread t = new Thread(new Runnable() {

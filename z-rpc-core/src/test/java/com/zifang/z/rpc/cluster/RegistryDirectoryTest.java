@@ -118,22 +118,21 @@ class RegistryDirectoryTest {
         return providerUrl(atPort, null);
     }
 
-    /** 再起一台真在听的 server，返回它的端口。 */
+    /** 再起一台真在听的 server，返回它的端口。绑 0 再读回真实端口 —— 探针式取号在"关掉到真正 bind"之间有抢端口竞态。 */
     private int anotherListeningPort() throws Exception {
-        int p = freePort();
-        RpcServer s = new RpcServer("127.0.0.1", p);
+        RpcServer s = new RpcServer("127.0.0.1", 0);
         s.registerService(Echo.class, new Plain());
         s.start(true);
         extraServers.add(s);
-        return p;
+        return s.getPort();
     }
 
     @BeforeEach
     void startServer() throws Exception {
-        port = freePort();
-        server = new RpcServer("127.0.0.1", port);
+        server = new RpcServer("127.0.0.1", 0);
         server.registerService(Echo.class, new Plain());
         server.start(true);
+        port = server.getPort();
         consumer = new URL("consumer", "127.0.0.1", 0);
         consumer.setServiceInterface(Echo.class.getName());
     }

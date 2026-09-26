@@ -33,10 +33,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.net.ServerSocket;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
@@ -87,7 +85,7 @@ class ContextPropagationE2ETest {
 
     private static final class CaptureServer {
         final BlockingQueue<RpcRequest> inbound = new LinkedBlockingQueue<RpcRequest>();
-        final int port;
+        int port;
         private NioEventLoopGroup boss;
         private NioEventLoopGroup worker;
         private Channel channel;
@@ -112,6 +110,8 @@ class ContextPropagationE2ETest {
                         }
                     });
             channel = b.bind("127.0.0.1", port).sync().channel();
+            // 绑 0 时端口只有 localAddress 知道，回填给读侧（srv.port 就是本类里所有 URL 的取号处）
+            port = ((java.net.InetSocketAddress) channel.localAddress()).getPort();
         }
 
         RpcRequest take() throws InterruptedException {
@@ -154,55 +154,25 @@ class ContextPropagationE2ETest {
         }
     }
 
-    private static int freePort() throws IOException {
-        ServerSocket socket = new ServerSocket(0);
-        try {
-            return socket.getLocalPort();
-        } finally {
-            socket.close();
-        }
-    }
-
+    /** 绑 0 让内核选端口，再从 channel 的 localAddress 读回真实端口 —— 探针式取号在"关掉探测 socket"与"真正 bind"之间有抢端口竞态。 */
     private CaptureServer startCaptureServer() throws Exception {
-        int lastError = 0;
-        for (int attempt = 0; attempt < 3; attempt++) {
-            int port = freePort();
-            CaptureServer s = new CaptureServer(port);
-            try {
-                s.start();
-            } catch (Throwable bindFailed) {
-                lastError = port;
-                s.stop();
-                continue;
-            }
-            captureServers.add(s);
-            return s;
-        }
-        throw new IllegalStateException("三次都占不到端口，最后一次: " + lastError);
+        CaptureServer s = new CaptureServer(0);
+        s.start();
+        captureServers.add(s);
+        return s;
     }
 
-    /** 真实 RpcServer；端口占用则重试。 */
+    /** 真实 RpcServer；端口由内核分配，取号一律走 {@code RpcServer.getPort()}。 */
     private int startProviderServer(RegistrationConfigurer cfg) throws Exception {
-        int lastError = 0;
-        for (int attempt = 0; attempt < 3; attempt++) {
-            int port = freePort();
-            RpcServer s = new RpcServer("127.0.0.1", port);
-            cfg.apply(s);
-            try {
-                s.start(true);
-            } catch (Throwable bindFailed) {
-                lastError = port;
-                s.stop();
-                continue;
-            }
-            for (int i = 0; i < 50 && !s.isStarted(); i++) {
-                Thread.sleep(10);
-            }
-            providerServer = s;
-            assertTrue(s.isStarted(), "服务端没起来，后面的断言全是空跑");
-            return port;
+        RpcServer s = new RpcServer("127.0.0.1", 0);
+        cfg.apply(s);
+        s.start(true);
+        for (int i = 0; i < 50 && !s.isStarted(); i++) {
+            Thread.sleep(10);
         }
-        throw new IllegalStateException("三次都占不到端口，最后一次: " + lastError);
+        providerServer = s;
+        assertTrue(s.isStarted(), "服务端没起来，后面的断言全是空跑");
+        return s.getPort();
     }
 
     private interface RegistrationConfigurer {

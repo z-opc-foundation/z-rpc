@@ -76,7 +76,7 @@ public final class CrossProcessProvider {
             System.out.flush();
             return;
         }
-        System.out.println("READY " + port + " " + ownPid());
+        System.out.println("READY " + server.getPort() + " " + ownPid());
         System.out.flush();
         Thread.sleep(Long.MAX_VALUE);
     }
