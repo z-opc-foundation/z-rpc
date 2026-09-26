@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.PropertyValues;
 import org.springframework.beans.MutablePropertyValues;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.support.GenericApplicationContext;
 
 import java.lang.reflect.Field;
@@ -23,8 +24,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -475,5 +478,168 @@ class ZRpcReferenceInjectorTest {
             }
         }
         assertTrue(overridesDeprecated, "postProcessPropertyValues 未被覆写 => 注入根本不会发生");
+    }
+
+    // ================= 注入失败那一支：catch 里只有一行 log.error（第 22 轮，M6 族） =================
+
+    /** 字段声明类型是**类**而不是接口 —— {@code ReferenceConfig.checkConfig()} 必在这里抛。 */
+    static class NotAnInterface {
+        public String hello() {
+            return "local";
+        }
+    }
+
+    /**
+     * 三种字段装在同一种 bean 里：一支必坏（非接口）、一支必坏（坏端口）、一支应当成功。
+     * "应当成功"那一支放在同一个 bean 里而不是另开一个类，是为了顺手量另一件事：
+     * 字段遍历顺序由 JVM 决定，所以只要它恒为注入成功，就证明**前一次的失败没有把注入器弄成半死状态**。
+     */
+    static class MixedConsumer {
+        @ZRpcReference(url = "zrpc://127.0.0.1:1")
+        Alpha good;
+
+        @ZRpcReference(url = "zrpc://127.0.0.1:1")
+        NotAnInterface notInterface;
+
+        @ZRpcReference(url = "zrpc://127.0.0.1:notaport")
+        Beta badUrl;
+    }
+
+    /** 同一个接口两种字段 —— 量的是 {@code registeredBeanNames} 去重在真注入路径上的后果。 */
+    static class TwinConsumer {
+        @ZRpcReference(url = "zrpc://127.0.0.1:1")
+        Alpha first;
+
+        @ZRpcReference(url = "zrpc://127.0.0.1:2")
+        Alpha second;
+    }
+
+    private static AnnotationConfigApplicationContext startedWith(Class<?>... components) {
+        AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext();
+        Class<?>[] all = new Class<?>[components.length + 1];
+        all[0] = ZRpcReferenceInjector.class;
+        System.arraycopy(components, 0, all, 1, components.length);
+        ctx.register(all);
+        ctx.refresh();
+        return ctx;
+    }
+
+    @Test
+    @DisplayName("bug_注入失败被吞成 null：非接口字段与坏端口字段都静默失败，容器照样 refresh 成功")
+    void bug_injectionFailureIsSwallowedIntoANullField() throws Exception {
+        final AnnotationConfigApplicationContext[] holder = new AnnotationConfigApplicationContext[1];
+        Object refreshOutcome = callWithDeadline(() -> {
+            try {
+                holder[0] = startedWith(MixedConsumer.class);
+                return null;
+            } catch (Throwable t) {
+                return t;
+            }
+        });
+        assertNull(refreshOutcome, "注入失败不该打断容器启动，实际抛出: " + refreshOutcome);
+        AnnotationConfigApplicationContext ctx = holder[0];
+        assertNotNull(ctx, "上面那条断言失败时这里没有容器可收尾");
+        try {
+            MixedConsumer bean = ctx.getBean(MixedConsumer.class);
+            // 猎物在场：同一台容器、同一个 bean、同一次字段遍历，好字段必须拿得到代理
+            assertNotNull(bean.good, "正向对照不成立 => 注入器压根没跑，下面的 null 判据全是空的");
+            assertTrue(java.lang.reflect.Proxy.isProxyClass(bean.good.getClass()),
+                    "good 应当是动态代理，实际: " + bean.good.getClass());
+
+            // 而两支必坏的字段：字段是 null，bean 照常交付给业务代码
+            assertNull(bean.notInterface,
+                    "@ZRpcReference 打在类（非接口）字段上，注入失败被 catch 吞掉 => 业务代码拿到 null");
+            assertNull(bean.badUrl,
+                    "url 里的端口写成一个词，注入失败同样被吞掉 => 只有日志里一行 error");
+        } finally {
+            ctx.close();
+        }
+
+        // 那两支吞掉的到底是什么错，得单独量一次：不量就只能猜"大概是 NPE"。
+        IllegalStateException notInterface = assertThrows(IllegalStateException.class, () ->
+                build(annOf(MixedConsumer.class, "notInterface"), NotAnInterface.class).get());
+        assertTrue(notInterface.getMessage().contains("must be an interface"),
+                "非接口字段的错因与预期不同，实际: " + notInterface.getMessage());
+        RuntimeException badUrl = assertThrows(RuntimeException.class, () ->
+                build(annOf(MixedConsumer.class, "badUrl"), Beta.class).get());
+        assertTrue(badUrl.getMessage().contains("notaport") || badUrl.getMessage().contains("zrpc://"),
+                "坏端口的错消息应当带上写坏的那一段或整条 url，实际: " + badUrl.getMessage());
+    }
+
+    @Test
+    @DisplayName("bug_被吞掉的失败对调用方零可编程痕迹：没有记录入口，pvs 原样返回")
+    void bug_swallowedFailureLeavesNoProgrammaticTrace() throws Exception {
+        // 结构性守卫：注入器上除 log / applicationContext / registeredBeanNames 之外没有任何字段，
+        // 也没有任何 failure / error / last 形状的方法 —— 一旦有，调用方就还能问"刚才有没有没注入成功的字段"。
+        Map<String, String> instanceFields = new TreeMap<>();
+        for (Field f : ZRpcReferenceInjector.class.getDeclaredFields()) {
+            if (!java.lang.reflect.Modifier.isStatic(f.getModifiers())) {
+                instanceFields.put(f.getName(), f.getType().getSimpleName());
+            }
+        }
+        assertEquals(2, instanceFields.size(), "注入器的实例字段多了：得同时确认新增的那个是不是失败记录 -> " + instanceFields);
+        assertTrue(instanceFields.containsKey("applicationContext") && instanceFields.containsKey("registeredBeanNames"),
+                "两个实例字段的身份变了，本用例的判据要跟着改 -> " + instanceFields);
+        java.util.List<String> reporters = new java.util.ArrayList<>();
+        for (Method m : ZRpcReferenceInjector.class.getDeclaredMethods()) {
+            String n = m.getName().toLowerCase();
+            if (n.contains("fail") || n.contains("error") || n.contains("last") || n.contains("pending")) {
+                reporters.add(m.getName());
+            }
+        }
+        assertEquals(java.util.Collections.emptyList(), reporters,
+                "出现了一个能把失败说给调用方听的方法，本用例的结论要翻");
+
+        // 行为面：真的让一次失败发生，然后看它有没有在返回值上留任何痕迹
+        ZRpcReferenceInjector injector = new ZRpcReferenceInjector();
+        injector.setApplicationContext(new GenericApplicationContext());
+        final MutablePropertyValues pvs = new MutablePropertyValues();
+        final MixedConsumer bean = new MixedConsumer();
+        Object outcome = callWithDeadline(() -> {
+            try {
+                return injector.postProcessPropertyValues(pvs, new java.beans.PropertyDescriptor[0],
+                        bean, "mixedConsumer");
+            } catch (Throwable t) {
+                return t;
+            }
+        });
+        assertTrue(outcome instanceof PropertyValues,
+                "postProcessPropertyValues 应当正常返回，实际: " + outcome);
+        assertSame(pvs, outcome, "返回值必须是传进去的那一份 pvs：它既不改属性也不带失败标记");
+        assertNull(bean.notInterface, "prey：这一次注入确实失败了（否则上面那两句是空跑）");
+        assertNotNull(bean.good, "prey：同一个 bean 里有字段注入成功");
+    }
+
+    @Test
+    @DisplayName("bug_同接口两个字段：字段里是两个不同代理，容器里只有第一个")
+    void bug_secondFieldOfSameTypeKeepsAProxyTheContainerNeverSees() throws Exception {
+        final AnnotationConfigApplicationContext[] holder = new AnnotationConfigApplicationContext[1];
+        Object refreshOutcome = callWithDeadline(() -> {
+            try {
+                holder[0] = startedWith(TwinConsumer.class);
+                return null;
+            } catch (Throwable t) {
+                return t;
+            }
+        });
+        assertNull(refreshOutcome, "容器不该因为两个同类型字段而启动失败: " + refreshOutcome);
+        AnnotationConfigApplicationContext ctx = holder[0];
+        try {
+            TwinConsumer bean = ctx.getBean(TwinConsumer.class);
+            assertNotNull(bean.first, "prey：第一支注入成功");
+            assertNotNull(bean.second, "prey：第二支也注入成功（两支各 new 了一个 ReferenceConfig）");
+            assertNotSame(bean.first, bean.second,
+                    "两个字段是同一次遍历里两次独立 get() 的产物，本应就是两个对象 —— 这条不成立则下面全部退化");
+
+            // registeredBeanNames 按接口全名去重：第二个代理被 add 失败挡在门外
+            assertSame(bean.first, ctx.getBeanFactory().getSingleton(Alpha.class.getName()),
+                    "登记进容器的只有第一个 => 第二个字段与容器里那个不是同一个对象");
+            assertEquals(1, ctx.getBeanNamesForType(Alpha.class).length,
+                    "按类型能数出来的 Alpha bean 应当只有一个");
+            assertSame(bean.first, ctx.getBean(Alpha.class),
+                    "业务代码 @Autowired Alpha 拿到第一个，而它旁边的字段装着第二个");
+        } finally {
+            ctx.close();
+        }
     }
 }
