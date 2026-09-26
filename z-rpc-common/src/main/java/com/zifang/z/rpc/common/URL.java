@@ -76,49 +76,79 @@ public class URL implements Serializable {
         }
 
         URL result = new URL();
+        String rest = url;
 
         // 解析协议
-        int protocolEnd = url.indexOf("://");
-        if (protocolEnd > 0) {
-            result.protocol = url.substring(0, protocolEnd);
-            url = url.substring(protocolEnd + 3);
-        }
-
-        // 解析路径和参数
-        int pathStart = url.indexOf("/");
-        String address;
-        String pathAndParams;
-
-        if (pathStart > 0) {
-            address = url.substring(0, pathStart);
-            pathAndParams = url.substring(pathStart + 1);
-        } else {
-            address = url;
-            pathAndParams = "";
-        }
-
-        // 解析 host:port
-        int colonIndex = address.indexOf(":");
-        if (colonIndex > 0) {
-            result.host = address.substring(0, colonIndex);
-            result.port = Integer.parseInt(address.substring(colonIndex + 1));
-        } else {
-            result.host = address;
-        }
-
-        // 解析 serviceInterface 和参数
-        if (!pathAndParams.isEmpty()) {
-            int paramStart = pathAndParams.indexOf("?");
-            if (paramStart > 0) {
-                result.serviceInterface = pathAndParams.substring(0, paramStart);
-                String paramStr = pathAndParams.substring(paramStart + 1);
-                parseParams(result, paramStr);
-            } else {
-                result.serviceInterface = pathAndParams;
+        int protocolEnd = rest.indexOf("://");
+        if (protocolEnd >= 0) {
+            if (protocolEnd > 0) {
+                result.protocol = rest.substring(0, protocolEnd);
             }
+            // 协议名可以为空（"://host:port"），但分隔符必须剥掉：判据曾是 `> 0`，
+            // 于是 "://127.0.0.1:20880" 整串留下，后续切出来的 host 变成一个冒号。
+            rest = rest.substring(protocolEnd + 3);
+        }
+
+        // query 先切，再切 path：反过来写的话 "host:port?k=v"（只有 query 没有 path）
+        // 会把 "?k=v" 连着端口一起送进 parseInt，而 "host:port/?k=v" 会把 "?k=v" 当成接口名。
+        String paramStr = "";
+        int paramStart = rest.indexOf("?");
+        if (paramStart >= 0) {
+            paramStr = rest.substring(paramStart + 1);
+            rest = rest.substring(0, paramStart);
+        }
+
+        String path = "";
+        int pathStart = rest.indexOf("/");
+        if (pathStart >= 0) {
+            path = rest.substring(pathStart + 1);
+            rest = rest.substring(0, pathStart);
+        }
+
+        parseHostPort(result, rest, url);
+        if (!path.isEmpty()) {
+            result.serviceInterface = path;
+        }
+        if (!paramStr.isEmpty()) {
+            parseParams(result, paramStr);
         }
 
         return result;
+    }
+
+    private static void parseHostPort(URL result, String address, String url) {
+        int close = address.indexOf(']');
+        if (address.startsWith("[") && close >= 0) {
+            // IPv6 字面量里合法地含 ':'，所以端口不能靠 indexOf(":") 找，必须以 ']' 为界
+            result.host = address.substring(1, close);
+            String tail = address.substring(close + 1);
+            if (tail.isEmpty()) {
+                return;
+            }
+            if (tail.charAt(0) != ':') {
+                throw new IllegalArgumentException("Unexpected \"" + tail + "\" after ']' in url: " + url);
+            }
+            result.port = parsePort(tail.substring(1), url);
+            return;
+        }
+
+        int colonIndex = address.indexOf(":");
+        if (colonIndex > 0) {
+            result.host = address.substring(0, colonIndex);
+            result.port = parsePort(address.substring(colonIndex + 1), url);
+        } else {
+            result.host = address;
+        }
+    }
+
+    private static int parsePort(String raw, String url) {
+        try {
+            return Integer.parseInt(raw);
+        } catch (NumberFormatException e) {
+            // 裸 parseInt 的消息只有 For input string: "abc"，而这串是配置文件里写的地址，
+            // 报错必须指回是哪一条 url。
+            throw new NumberFormatException("Invalid port \"" + raw + "\" in url: " + url);
+        }
     }
 
     private static void parseParams(URL url, String paramStr) {
@@ -177,6 +207,11 @@ public class URL implements Serializable {
      * 获取地址：ip:port
      */
     public String getAddress() {
+        if (host != null && host.indexOf(':') >= 0) {
+            // IPv6 字面量必须重新包上方括号：getAddress() 在负载均衡和 RegistryDirectory 里是
+            // map 的键，"::1:20880" 这种写法分不出哪一段是端口，两条地址会撞进同一个键。
+            return "[" + host + "]:" + port;
+        }
         return host + ":" + port;
     }
 
@@ -242,7 +277,7 @@ public class URL implements Serializable {
         if (protocol != null) {
             sb.append(protocol).append("://");
         }
-        sb.append(host).append(":").append(port);
+        sb.append(getAddress());
         if (serviceInterface != null) {
             sb.append("/").append(serviceInterface);
         }

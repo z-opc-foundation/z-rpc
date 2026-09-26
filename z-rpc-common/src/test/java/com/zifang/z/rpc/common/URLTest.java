@@ -104,50 +104,129 @@ class URLTest {
     // ---------------------------------------------------------------- valueOf: malformed input
 
     @Test
+    @DisplayName("非数字端口抛 NumberFormatException，且消息指回整条 url")
     void valueOf_nonNumericPort_throwsNumberFormatException() {
-        assertThrows(NumberFormatException.class, () -> URL.valueOf("z-rpc://host:abc/com.Foo"));
+        NumberFormatException e = assertThrows(NumberFormatException.class,
+                () -> URL.valueOf("z-rpc://host:abc/com.Foo"));
+        assertEquals("Invalid port \"abc\" in url: z-rpc://host:abc/com.Foo", e.getMessage());
     }
 
     @Test
+    @DisplayName("空端口抛 NumberFormatException，且消息指回整条 url")
     void valueOf_emptyPort_throwsNumberFormatException() {
-        assertThrows(NumberFormatException.class, () -> URL.valueOf("z-rpc://host:/com.Foo"));
+        NumberFormatException e = assertThrows(NumberFormatException.class,
+                () -> URL.valueOf("z-rpc://host:/com.Foo"));
+        assertEquals("Invalid port \"\" in url: z-rpc://host:/com.Foo", e.getMessage());
     }
 
     @Test
-    @DisplayName("bug_ valueOf cannot parse an IPv6 host")
-    void bug_valueOf_rejectsIpv6Host() {
-        // Correct: strip the brackets and parse the port after the last ':'.
-        assertThrows(NumberFormatException.class, () -> URL.valueOf("z-rpc://[::1]:20880/com.Foo"));
+    @DisplayName("IPv6 主机：剥掉方括号取地址，端口从 ']' 之后取")
+    void valueOf_ipv6Host_stripsBracketsAndReadsPort() {
+        URL url = URL.valueOf("z-rpc://[::1]:20880/com.Foo");
+
+        assertEquals("z-rpc", url.getProtocol());
+        assertEquals("::1", url.getHost());
+        assertEquals(20880, url.getPort());
+        assertEquals("com.Foo", url.getServiceInterface());
+        // 打印回来的方括号不能少：getAddress() 是 loadbalance / RegistryDirectory 的 map 键
+        assertEquals("[::1]:20880", url.getAddress());
+        assertEquals("z-rpc://[::1]:20880/com.Foo", url.toString());
     }
 
     @Test
-    @DisplayName("bug_ valueOf with a query but no path corrupts the port")
-    void bug_valueOf_queryWithoutPath_corruptsHostAndPort() {
-        // Correct: the port is 20880 and the query belongs to the parameters.
-        assertThrows(NumberFormatException.class,
-                () -> URL.valueOf("z-rpc://127.0.0.1:20880?interface=com.Foo"));
+    @DisplayName("IPv6 主机不带端口")
+    void valueOf_ipv6HostWithoutPort_keepsPortZero() {
+        URL url = URL.valueOf("z-rpc://[fe80::1]/com.Foo");
+
+        assertEquals("fe80::1", url.getHost());
+        assertEquals(0, url.getPort());
+        assertEquals("com.Foo", url.getServiceInterface());
+        assertEquals("[fe80::1]:0", url.getAddress());
     }
 
     @Test
-    @DisplayName("bug_ valueOf on '://host' keeps the separator inside the host")
-    void bug_valueOf_missingProtocolName_keepsSeparatorInHost() {
-        // 实测（不是"应当"）：indexOf("://")>0 不成立 ⇒ 协议段没被剥掉；
-        // 随后 indexOf("/") 命中第 2 个字符 ⇒ address 只剩一个冒号，剩下的全成了 serviceInterface。
+    @DisplayName("两个不同的 IPv6 地址不会在 getAddress() 这个键上撞车")
+    void getAddress_doesNotCollideIpv6HostsWithIpv4Ports() {
+        // 少了方括号时 "::1:20880" 与 host="::1:20" port=880 会打印成同一个串
+        String a = URL.valueOf("z-rpc://[::1]:20880/com.Foo").getAddress();
+        URL b = new URL("z-rpc", "::1:20", 880, "com.Foo");
+
+        assertEquals("[::1]:20880", a);
+        assertEquals("[::1:20]:880", b.getAddress());
+        assertFalse(a.equals(b.getAddress()));
+    }
+
+    @Test
+    @DisplayName("']' 后面既不是 ':' 也不是结尾：抛错并指回 url")
+    void valueOf_junkAfterIpv6Bracket_isRejected() {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> URL.valueOf("z-rpc://[::1]x/com.Foo"));
+        assertTrue(e.getMessage().contains("z-rpc://[::1]x/com.Foo"), e.getMessage());
+    }
+
+    @Test
+    @DisplayName("没有配对 ']' 的 '['：走普通分支，第一个 ':' 之后整块不是数字，抛错并指回 url")
+    void valueOf_unmatchedOpenBracket_isRejected() {
+        NumberFormatException e = assertThrows(NumberFormatException.class,
+                () -> URL.valueOf("z-rpc://[::1/com.Foo"));
+        // address 只剩 "[::1"，host 收到 "["，剩下 ":1" 送去解析端口
+        assertEquals("Invalid port \":1\" in url: z-rpc://[::1/com.Foo", e.getMessage());
+    }
+
+    @Test
+    @DisplayName("只有 query 没有 path：query 先切走，端口不再被污染")
+    void valueOf_queryWithoutPath_splitsBeforeThePort() {
+        URL url = URL.valueOf("z-rpc://127.0.0.1:20880?interface=com.Foo");
+
+        assertEquals("127.0.0.1", url.getHost());
+        assertEquals(20880, url.getPort());
+        assertNull(url.getServiceInterface());
+        assertEquals("com.Foo", url.getParameter("interface"));
+        assertEquals(1, url.getParameters().size());
+    }
+
+    @Test
+    @DisplayName("query 里带 '/'：不能被当成 path 的分隔符")
+    void valueOf_slashInsideQuery_isNotAPathSeparator() {
+        URL url = URL.valueOf("z-rpc://h:1?a=b/c");
+
+        assertEquals("h", url.getHost());
+        assertEquals(1, url.getPort());
+        assertNull(url.getServiceInterface());
+        assertEquals("b/c", url.getParameter("a"));
+    }
+
+    @Test
+    @DisplayName("根斜杠后直接跟 query：接口名留空，不再把 '?a=b' 当成接口")
+    void valueOf_queryAfterRootSlash_leavesServiceInterfaceNull() {
+        URL url = URL.valueOf("z-rpc://h:1/?a=b");
+
+        assertEquals("h", url.getHost());
+        assertEquals(1, url.getPort());
+        assertNull(url.getServiceInterface());
+        assertEquals("b", url.getParameter("a"));
+    }
+
+    @Test
+    @DisplayName("协议名缺省（\"://host:port\"）：分隔符仍被剥掉，host:port 落在该落的位置")
+    void valueOf_emptyProtocolName_stripsSeparator() {
         URL url = URL.valueOf("://127.0.0.1:20880");
 
         assertNull(url.getProtocol());
-        assertEquals(":", url.getHost());
-        assertEquals(0, url.getPort());
-        assertEquals("/127.0.0.1:20880", url.getServiceInterface(),
-                "真正的 host:port 被塞进 serviceInterface，解析结果整体错位");
-        assertEquals("::0", url.getAddress(), "getAddress() 就是 host + \":\" + port，于是分隔符被当成主机名");
+        assertEquals("127.0.0.1", url.getHost());
+        assertEquals(20880, url.getPort());
+        assertNull(url.getServiceInterface(), "没有 path 就是没有接口名，不再把整串地址塞进去");
+        assertEquals("127.0.0.1:20880", url.getAddress());
     }
 
     @Test
-    @DisplayName("bug_ valueOf of 'proto:host:port/path' splits on the first colon")
-    void bug_valueOf_withoutSlashSeparator_misSplitsHost() {
-        // Correct: require "://" before accepting a protocol prefix.
-        assertThrows(NumberFormatException.class, () -> URL.valueOf("z-rpc:host:1/svc"));
+    @DisplayName("协议后漏了 '//'：不会被认成协议，抛错且消息带着整条 url")
+    void valueOf_protocolWithoutSlashes_isRejectedAndNamesTheUrl() {
+        // 这条输入此前也抛 NumberFormatException，但消息只有 For input string: "host:1"；
+        // 现在指出是哪一条 url 出错。真正的"整体错位"发生在 valueOf("://host:port")，已单独修掉。
+        NumberFormatException e = assertThrows(NumberFormatException.class,
+                () -> URL.valueOf("z-rpc:host:1/svc"));
+        assertEquals("Invalid port \"host:1\" in url: z-rpc:host:1/svc", e.getMessage());
     }
 
     // ---------------------------------------------------------------- parameter parsing
@@ -487,6 +566,25 @@ class URLTest {
         URL url = new URL("z-rpc", "h", 1, "Svc").addParameter("expr", "x=1");
 
         assertEquals("x=1", URL.valueOf(url.toString()).getParameter("expr"));
+    }
+
+    @Test
+    @DisplayName("IPv6 的打印再解析：方括号这一层必须自己还原回来")
+    void ipv6UrlsRoundTripThroughToString() {
+        String[] printed = {
+                "z-rpc://[::1]:20880",
+                "z-rpc://[fe80::1]:9090/Svc",
+                "z-rpc://[::1]:0/Svc",
+        };
+
+        for (String p : printed) {
+            URL parsed = URL.valueOf(p);
+            assertEquals(p, parsed.toString(), "解析再打印应当逐字回到原串：" + p);
+            assertFalse(parsed.getHost().contains("["), "host 字段里不该留方括号：" + p);
+        }
+
+        // 手工构造（不经字符串）也要走同一条打印规则
+        assertEquals("[::1]:20880", new URL("z-rpc", "::1", 20880).getAddress());
     }
 
     // ---------------------------------------------------------------- ctors / bean accessors

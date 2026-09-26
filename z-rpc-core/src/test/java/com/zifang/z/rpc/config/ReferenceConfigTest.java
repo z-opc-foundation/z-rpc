@@ -207,6 +207,48 @@ class ReferenceConfigTest {
         }
     }
 
+    @Test
+    @DisplayName("直连地址漏写协议名（\"://host:port\"）也要真打通：URL 解析修复的链路面")
+    void directUrlWithoutProtocolNameStillRoundTrips() throws Exception {
+        RpcServer server = new RpcServer("127.0.0.1", 0);
+        server.registerService(Greeter.class, new GreeterImpl());
+        server.start(true);
+        int port = server.getPort();
+        try {
+            ReferenceConfig<Greeter> ref = new ReferenceConfig<>();
+            ref.setInterfaceClass(Greeter.class);
+            ref.setUrl("://127.0.0.1:" + port);
+            Greeter proxy = ref.get();
+
+            // 修复前 valueOf 把这条解析成 host=":"、serviceInterface="/127.0.0.1:<port>"，
+            // 于是这里去连的是 ":":0 —— 报错发生在 socket 层，看不出是地址写错了
+            assertEquals("hello noprotocol", proxy.greet("noprotocol"),
+                    "地址里的 host:port 必须落在该落的位置上");
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    @DisplayName("直连地址只有 query 没有 path：端口不再被 query 污染")
+    void directUrlWithQueryAndNoPathStillRoundTrips() throws Exception {
+        RpcServer server = new RpcServer("127.0.0.1", 0);
+        server.registerService(Greeter.class, new GreeterImpl());
+        server.start(true);
+        int port = server.getPort();
+        try {
+            ReferenceConfig<Greeter> ref = new ReferenceConfig<>();
+            ref.setInterfaceClass(Greeter.class);
+            ref.setUrl("z-rpc://127.0.0.1:" + port + "?timeout=5000");
+            Greeter proxy = ref.get();
+
+            assertEquals("hello queried", proxy.greet("queried"),
+                    "修复前 Integer.parseInt(\"<port>?timeout=5000\") 直接抛 NumberFormatException");
+        } finally {
+            server.stop();
+        }
+    }
+
     // ---------- 配置项有没有人读 ----------
 
     @Test
