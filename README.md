@@ -200,7 +200,7 @@ server.stop();
 
 `random` / `roundrobin` / `leastactive`。上一版的 **`SmoothWeightedRR` 与 `ConsistentHash` 不存在**（`forking` / `consistenthash` 在任何 SPI 清单里都搜不到）。
 
-而且**配置项本身没人读**：`z.rpc.consumer.loadbalance` / `cluster` / `timeout` / `retries` 会被搬到 `ReferenceConfig` 的字段上，但下游没有任何一处 consult —— 策略名随便写也不报错，超时最终落到 `RpcClient` 的字段常量（报告 N15：`bug_loadBalanceSettingIsNeverConsulted`、`bug_clusterSettingIsIgnored`、`bug_timeoutSettingIsWriteOnly`、`bug_protocolSettingDoesNotChangeTheFrame`）。
+而且**配置项本身没人 consult**：`z.rpc.consumer.loadbalance` / `cluster` / `timeout` 唯一的去处是 `ZRpcFrameworkInitializer` 那句 `log.info`（**并不会**被搬到 `ReferenceConfig` 上 —— 搬属性的是 `@ZRpcReference` 那条路，跟 yaml 无关），`z.rpc.consumer.retries` 连横幅都没进（见"配置项到底哪些有落点"那张表）。结果就是策略名随便写也不报错，超时最终落到 `RpcClient` 的字段常量（报告 N15：`bug_loadBalanceSettingIsNeverConsulted`、`bug_clusterSettingIsIgnored`、`bug_timeoutSettingIsWriteOnly`、`bug_protocolSettingDoesNotChangeTheFrame`）。
 
 ### 序列化（5 种注册，2 种有硬限制）
 
@@ -236,14 +236,66 @@ server.stop();
 
 别把两边读数混着读：`FrameCodecTest` 的 17 条钉的是 26 字节那套，生产 `RpcClient` / `RpcServer` 走的是 10 字节那套。**`dubbo` 与 `http` 两种协议没有实现**（`Protocol` SPI 只有 `z-rpc` 一个 key），所以旧 README 的"多协议端口：单服务同时监听 zrpc + http"与"通过 Rest 调用（dubbo 兼容）"不成立。
 
+### 配置项到底哪些有落点（33 个 key，逐个判）
+
+上面那份 yaml 里的 key **都真实存在**（`ZRpcProperties` 反射遍历得 33 个叶子），但"存在"和"起作用"是两件事。这一张表按**谁真的读了它**分三档，判据全在 `ConfigLandingContractTest` 里，不是数出来的：
+
+- **真用**：值流进了装配决策或构造参数（`z.rpc.enabled` 与 `z.rpc.registry.enabled` / `server.enabled` 走 `@ConditionalOnProperty` 与 `if` 分支决定 bean 在不在；`server.host` / `server.port` 是 `new RpcServer(..)` 的实参）。
+- **只进横幅**：只在 `ZRpcFrameworkInitializer` 的 `log.info` 里被读了一次，打印完就没人管 —— 改它只会改变启动日志的字样。
+- **没人读**：全仓 `src/main` 里连 `get<Group>().get<Key>()` 这条链都搜不到，纯装饰。
+
+| key | 类型 | 默认值 | 落点 |
+|---|---|---|---|
+| `z.rpc.application.name` | String | z-rpc-app | 只进横幅 |
+| `z.rpc.application.organization` | String | zifang | 只进横幅 |
+| `z.rpc.application.version` | String | 1.0.0 | 只进横幅 |
+| `z.rpc.consumer.async` | boolean | false | 没人读 |
+| `z.rpc.consumer.check` | boolean | false | 没人读 |
+| `z.rpc.consumer.cluster` | String | failover | 只进横幅 |
+| `z.rpc.consumer.connections` | int | 1 | 没人读 |
+| `z.rpc.consumer.loadbalance` | String | random | 只进横幅 |
+| `z.rpc.consumer.retries` | int | 2 | 没人读 |
+| `z.rpc.consumer.serialization` | String | hessian2 | 没人读 |
+| `z.rpc.consumer.timeout` | int | 3000 | 只进横幅 |
+| `z.rpc.enabled` | boolean | true | 真用 |
+| `z.rpc.protocol.compressThreshold` | int | 1024 | 没人读 |
+| `z.rpc.protocol.name` | String | z-rpc | 只进横幅 |
+| `z.rpc.protocol.port` | int | 20880 | 没人读 |
+| `z.rpc.protocol.serialization` | String | hessian2 | 只进横幅 |
+| `z.rpc.provider.async` | boolean | false | 没人读 |
+| `z.rpc.provider.delay` | int | 0 | 没人读 |
+| `z.rpc.provider.serialization` | String | hessian2 | 没人读 |
+| `z.rpc.provider.threads` | int | 200 | 没人读 |
+| `z.rpc.provider.timeout` | int | 5000 | 没人读 |
+| `z.rpc.provider.token` | boolean | false | 没人读 |
+| `z.rpc.provider.weight` | int | 100 | 没人读 |
+| `z.rpc.registry.address` | String | 127.0.0.1:8084 | 只进横幅 |
+| `z.rpc.registry.enabled` | boolean | true | 真用 |
+| `z.rpc.registry.namespace` | String | public | 没人读 |
+| `z.rpc.registry.type` | String | z-config | 只进横幅 |
+| `z.rpc.server.enabled` | boolean | true | 真用 |
+| `z.rpc.server.host` | String | 0.0.0.0 | 真用 |
+| `z.rpc.server.ioThreads` | int | 8 | 没人读 |
+| `z.rpc.server.payload` | int | 8388608 | 没人读 |
+| `z.rpc.server.port` | int | 20880 | 真用 |
+| `z.rpc.server.threads` | int | 200 | 没人读 |
+
+**5 真用 / 10 只进横幅 / 18 没人读。** 也就是说：这仓的 yaml 面比它的行为面大得多 —— 上一版 README 那些**根本不存在**的 key（下面那句清单）至少还会报错机会都没有，而这一张表里"没人读"的 18 个是**真实存在、静默无效**，更难发现。默认值与类型不是抄的，是用例里 `newInstance()` 之后逐个 getter 读出来的，写错一个字这条就红。
+
 ### 注解属性到底哪些有落点
 
 这张表是照 `ZRpcServiceExporter` 与 `ZRpcReferenceInjector` 的实测写的，不是照注解声明写的（报告 H8 / H9 / N15）：
 
-| 注解 | 有落点的属性 | 没有落点的属性 |
-|---|---|---|
-| `@ZRpcService`（共 11 个属性） | `interfaceClass`（不写则取实现类唯一接口，多接口全导）、`version` | `interfaceName` / `group` / `weight` / `delay` / `timeout` / `retries` / `loadbalance` / `cluster` / `async` —— `RpcServer` 的三个 `register*` 重载里**没有任何 int/long 参数位**可放 |
-| `@ZRpcReference`（共 17 个属性） | `interfaceClass` / `interfaceName` / `version` / `group` / `timeout` / `retries` / `loadbalance` / `cluster` / `registry` / `url` / `async` / `oneway` 会被搬进 `ReferenceConfig` | `check` / `lazy` / `connections` / `client` / `serialization` **连搬都没搬**（后 5 个里 4 个 `ReferenceConfig` 连 setter 都没有）；搬过去的 `timeout` / `cluster` / `loadbalance` / `retries` 下游没人读 |
+| 注解 | 属性总数 | 有落点 | 没有落点 |
+|---|---|---|---|
+| `@ZRpcService` | 11 | `interfaceClass` / `version` | `interfaceName` / `group` / `weight` / `delay` / `timeout` / `retries` / `loadbalance` / `cluster` / `async` |
+| `@ZRpcReference` | 17 | `interfaceName` / `version` / `group` / `timeout` / `retries` / `loadbalance` / `cluster` / `registry` / `url` / `async` / `oneway` | `interfaceClass` / `check` / `lazy` / `connections` / `client` / `serialization` |
+
+判据（不是文字，是跑得动的）：**有落点 = 这个属性在对应处理器源码里以 `annotation.<属性>()` 被读到至少一次；没有落点 = 0 次**。两列的名字合起来必须**正好等于** `ZRpcService.class.getDeclaredMethods()` 的名字集合（**逐个名字比，不比个数**），"属性总数"那一列也必须等于反射出来的数量 —— 全在 `ConfigLandingContractTest` 里。
+
+- `@ZRpcService` 的 `interfaceClass` 算有落点：不写则取实现类的唯一接口，多接口全导。剩下 9 个放不进去 —— `RpcServer` 的三个 `register*` 重载（`registerService(Class, Object)` / `registerService(String, Object)` / `register(Class, Object, String)`）里**没有任何 int/long 参数位**可放，这条也是反射量的。
+- **`@ZRpcReference` 的 `interfaceClass` 是本轮从"有落点"列挪出来的**：注入器调的是 `buildReferenceConfig(annotation, field.getType())`，整个文件里 `annotation.interfaceClass()` 命中 **0** 次 —— 接口取的是**字段声明类型**，注解里那个 `Class` 从来没被读过。证据用例：字段声明成 `Alpha` 而注解写 `interfaceClass = Beta.class`，`ReferenceConfig.getInterfaceClass()` 回来的是 `Alpha`（`interfaceClassIsIgnoredAndFieldDeclaredTypeWins`）。
+- `check` / `lazy` / `connections` / `client` / `serialization` 这 5 个在 `ReferenceConfig` 里 **field / setter / getter 全 0 命中**（上一版这里写的是"5 个里 4 个"，实测是 5 个都没有）；搬过去的 `timeout` / `cluster` / `loadbalance` / `retries` 下游没人读。
 
 `@ZRpcReference` 的 `check` 默认 `true` 完全不起作用：对一个必连不上的 `zrpc://127.0.0.1:1`，注入器照样返回 JDK 代理，故障被推迟到首次调用（报告 `bug_deadUrlStillYieldsProxy`）。
 
@@ -393,7 +445,7 @@ mvn -B clean test                 # 反应堆 14 个模块
 cd z-rpc-admin && mvn -B clean test   # admin 不在 reactor，要单独跑
 ```
 
-当前读数（2026-09-26，README 契约轮之后）：**531 条用例 = 反应堆 519 + admin 12**，49 个测试源文件（515 个 `@Test` / `@ParameterizedTest` 标注）/ 41 个 surefire 报告类，`fail / error / skip` 全 0。新增的 12 条全部在 `z-rpc-spring-boot-starter` 的 `ReadmeContractTest` 里，钉的就是本 README 的主张。同一棵树在 macOS/JDK 25/Maven 3.9.14 与 Ubuntu 18.04/JDK 1.8.0_362/Maven 3.6.0 上逐模块读数相同（只有耗时不同）。逐模块分布与被钉住的缺陷清单见 [`_doc/002_测试报告.md`](_doc/002_测试报告.md)。
+当前读数（2026-09-26，落点尺轮之后）：**540 条用例 = 反应堆 528 + admin 12**，50 个测试源文件（524 个 `@Test` / `@ParameterizedTest` 标注）/ 42 个 surefire 报告类，`fail / error / skip` 全 0。README 契约轮的 12 条钉本 README 的模块表 / SPI 表 / 端口 / 许可 / 常量主张，落点尺轮新增的 9 条钉本 README 那两张**落点表**（33 个 yaml key 逐个判 + 两个注解的属性名字集合），两组都双向注入验过会红（报告 §11.2、§12.3）。同一棵树在 macOS/JDK 25/Maven 3.9.14 与 Ubuntu 18.04/JDK 1.8.0_362/Maven 3.6.0 上逐模块读数相同（只有耗时不同）。逐模块分布与被钉住的缺陷清单见 [`_doc/002_测试报告.md`](_doc/002_测试报告.md)。
 
 > 上一版这里写的 "312 + 78 + 14 + 31 + 22 + 18 + 15 PASS" 在仓库里没有任何对应产物，已按实测替换。
 

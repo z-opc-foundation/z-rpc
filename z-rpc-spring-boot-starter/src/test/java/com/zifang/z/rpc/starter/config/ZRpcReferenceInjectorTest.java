@@ -10,6 +10,9 @@ import org.springframework.context.support.GenericApplicationContext;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Map;
+import java.util.Objects;
+import java.util.TreeMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -18,6 +21,7 @@ import java.util.concurrent.TimeoutException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -57,6 +61,22 @@ class ZRpcReferenceInjectorTest {
         Beta beta;
 
         String notAnnotated;
+    }
+
+    /** 字段声明类型与注解点名的接口**不一致**，用来判接口到底取自哪一边。 */
+    static class MismatchedConsumer {
+        @ZRpcReference(interfaceClass = Beta.class, url = "zrpc://127.0.0.1:1")
+        Alpha alpha;
+    }
+
+    /** 与 {@link FullConsumer} 只差在"没有落点"的那五个属性全取默认值 —— 用来做整份 getter 对拍。 */
+    static class FiveDefaultsConsumer {
+        @ZRpcReference(interfaceName = "custom.Name",
+                version = "3.2.1", group = "grpA", timeout = 4321, retries = 5,
+                loadbalance = "roundrobin", cluster = "failfast",
+                registry = "10.1.2.3:9000", url = "zrpc://127.0.0.1:1",
+                async = true, oneway = true)
+        Alpha alpha;
     }
 
     // ---------------- buildReferenceConfig：纯映射 ----------------
@@ -131,6 +151,92 @@ class ZRpcReferenceInjectorTest {
         assertEquals("127.0.0.1:8084", cfg.getRegistry(), "registry 默认值会被无条件搬下去");
     }
 
+    /**
+     * ReferenceConfig 上所有"叶子型"无参 getter 的整份读数。
+     * 只收 String/int/long/boolean/Class —— Logger/AtomicBoolean/Invoker/RegistryService/T
+     * 这些非叶子返回值不在对拍范围内（它们要么是资源句柄，要么是运行时产物）。
+     */
+    private static Map<String, String> leafState(ReferenceConfig<?> cfg) throws Exception {
+        Map<String, String> out = new TreeMap<String, String>();
+        for (Method m : ReferenceConfig.class.getMethods()) {
+            if (m.getDeclaringClass() != ReferenceConfig.class) {
+                continue;
+            }
+            if (m.getParameterTypes().length != 0) {
+                continue;
+            }
+            String n = m.getName();
+            if (!n.startsWith("get") && !n.startsWith("is")) {
+                continue;
+            }
+            Class<?> r = m.getReturnType();
+            if (r != String.class && r != int.class && r != long.class
+                    && r != boolean.class && r != Class.class) {
+                continue;
+            }
+            out.put(n, String.valueOf(m.invoke(cfg)));
+        }
+        return out;
+    }
+
+    private static Map<String, String> diffOf(Map<String, String> a, Map<String, String> b) {
+        Map<String, String> out = new TreeMap<String, String>();
+        assertEquals(a.keySet(), b.keySet(), "两次对拍的 getter 集合不一致，尺子不稳定");
+        for (String k : a.keySet()) {
+            if (!Objects.equals(a.get(k), b.get(k))) {
+                out.put(k, a.get(k) + " != " + b.get(k));
+            }
+        }
+        return out;
+    }
+
+    private static final String[] UNLANDED = {"check", "lazy", "connections", "client", "serialization"};
+
+    private static Map<String, String> attrValues(ZRpcReference ann, String... names) throws Exception {
+        Map<String, String> out = new TreeMap<String, String>();
+        for (String name : names) {
+            out.put(name, String.valueOf(ZRpcReference.class.getMethod(name).invoke(ann)));
+        }
+        return out;
+    }
+
+    @Test
+    @DisplayName("check/lazy/connections/client/serialization 五个属性在整份 ReferenceConfig 里不留任何痕迹")
+    void fiveUnlandedAttributesLeaveNoTrace() throws Exception {
+        final ZRpcReference full = annOf(FullConsumer.class, "alpha");
+        final ZRpcReference five = annOf(FiveDefaultsConsumer.class, "alpha");
+
+        // 阳性对照 ①：两份夹具在这 5 个属性上逐个不同，否则"没有痕迹"是空跑。
+        Map<String, String> fullAttrs = attrValues(full, UNLANDED);
+        Map<String, String> fiveAttrs = attrValues(five, UNLANDED);
+        assertEquals(5, fullAttrs.size());
+        assertEquals(5, fiveAttrs.size());
+        for (String name : UNLANDED) {
+            assertNotEquals(fiveAttrs.get(name), fullAttrs.get(name),
+                    "夹具 " + name + " 必须与默认值不同，否则对拍检不出东西");
+        }
+
+        // 除了这 5 个属性之外，两份注解的其余属性逐字相同（否则下面的零差异说明不了问题）。
+        assertEquals(
+                attrValues(full, "interfaceName", "version", "group", "timeout", "retries",
+                        "loadbalance", "cluster", "registry", "url", "async", "oneway"),
+                attrValues(five, "interfaceName", "version", "group", "timeout", "retries",
+                        "loadbalance", "cluster", "registry", "url", "async", "oneway"),
+                "夹具应当只差那 5 个属性");
+
+        Map<String, String> a = leafState(build(full, Alpha.class));
+        Map<String, String> b = leafState(build(five, Alpha.class));
+        assertFalse(a.isEmpty(), "prey：必须真的读到了 ReferenceConfig 的叶子状态，实际 0 个 getter");
+        assertTrue(a.size() >= 12, "只数出 " + a.size() + " 个叶子 getter，尺子疑似被收窄：" + a.keySet());
+        assertEquals(0, diffOf(a, b).size(),
+                "5 个无落点属性中有一个渗进了 ReferenceConfig（整份对拍应当零差异）");
+
+        // 阳性对照 ②：换成"有落点"的属性也不同的一份注解，同一把尺子必须数得出差异。
+        Map<String, String> landed = diffOf(a, leafState(build(annOf(PlainConsumer.class, "beta"), Alpha.class)));
+        assertFalse(landed.isEmpty(),
+                "有落点的属性变了却对拍不出差异 => leafState 是常量函数，上面的零差异不可信");
+    }
+
     // ---------------- 完整注入路径：连通性从不校验 ----------------
 
     /** 在一个独立线程里跑，避免任何一处真挂住把整个 surefire 拖死。 */
@@ -184,6 +290,55 @@ class ZRpcReferenceInjectorTest {
         });
         assertTrue(outcome instanceof Throwable,
                 "对死地址的调用本应失败，实际返回: " + outcome);
+    }
+
+    @Test
+    @DisplayName("bug_@ZRpcReference.interfaceClass 从不被读：接口只取自字段声明类型")
+    void bug_annotationInterfaceClassIsNeverRead() throws Exception {
+        final ZRpcReference ann = annOf(MismatchedConsumer.class, "alpha");
+        assertSame(Beta.class, ann.interfaceClass(), "prey：注解点名 Beta");
+        assertSame(Alpha.class, MismatchedConsumer.class.getDeclaredField("alpha").getType(),
+                "prey：字段声明的却是 Alpha —— 两边不一致才能判接口取自哪一边");
+
+        // 映射层：接口完全由第二个入参决定，注解里那个 interfaceClass 没有参与。
+        assertSame(Alpha.class, build(ann, Alpha.class).getInterfaceClass());
+        assertSame(Beta.class, build(ann, Beta.class).getInterfaceClass(),
+                "换个入参就换个接口 => buildReferenceConfig 没碰 annotation.interfaceClass()");
+        // 连派生的 interfaceName 也跟着入参走（注解没写 interfaceName 时）。
+        assertEquals(Beta.class.getName(), build(ann, Beta.class).getInterfaceName(),
+                "interfaceName 回退用的是入参类型，不是注解点名的接口");
+
+        // 真注入路径：代理只实现字段类型，注解点名的 Beta 在整个产物里不留痕迹。
+        ZRpcReferenceInjector injector = new ZRpcReferenceInjector();
+        GenericApplicationContext ctx = new GenericApplicationContext();
+        ctx.refresh();
+        try {
+            injector.setApplicationContext(ctx);
+            final MismatchedConsumer bean = new MismatchedConsumer();
+            Object outcome = callWithDeadline(() -> {
+                injector.postProcessPropertyValues(new MutablePropertyValues(),
+                        new java.beans.PropertyDescriptor[0], bean, "mismatchedConsumer");
+                return null;
+            });
+            assertNull(outcome, "注入过程本身不应返回异常对象: " + outcome);
+            assertNotNull(bean.alpha, "字段应当被注入代理");
+
+            Class<?> proxyClass = bean.alpha.getClass();
+            assertTrue(java.lang.reflect.Proxy.isProxyClass(proxyClass),
+                    "应当是 JdkProxyFactory 产出的动态代理，实际: " + proxyClass);
+            assertTrue(Alpha.class.isAssignableFrom(proxyClass),
+                    "代理实现的接口来自字段类型");
+            assertFalse(Beta.class.isAssignableFrom(proxyClass),
+                    "@ZRpcReference(interfaceClass = Beta.class) 被静默忽略 => 代理不实现 Beta");
+
+            // 登记名同样跟着字段类型走：按 Beta 去容器里取是取不到的。
+            assertNotNull(ctx.getBeanFactory().getSingleton(Alpha.class.getName()),
+                    "prey：代理按字段类型名登记");
+            assertNull(ctx.getBeanFactory().getSingleton(Beta.class.getName()),
+                    "注解点名的接口不会成为登记名，谁按 Beta @Autowired 谁失败");
+        } finally {
+            ctx.close();
+        }
     }
 
     @Test
