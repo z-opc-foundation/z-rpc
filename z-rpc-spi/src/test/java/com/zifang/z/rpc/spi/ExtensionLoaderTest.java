@@ -9,6 +9,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -226,5 +227,84 @@ class ExtensionLoaderTest {
         assertNull(factory.getExtension(DemoSPI.class, "alpha"),
                 "AdaptiveExtensionFactory 把解析失败降级成 null，调用方无从分辨");
         assertNull(factory.getExtension(PlainInterface.class, "whatever"));
+    }
+
+    // ====================== ExtensionFactory 那一层到底有没有被问过（N54） ======================
+
+    @Test
+    @DisplayName("bug_ 加载器手里攥着工厂却从不问它：直接问工厂要得到，经过 loader 就要不到")
+    void bug_extensionLoaderNeverConsultsItsObjectFactory() throws Exception {
+        FakeSpiContext context = new FakeSpiContext().put("factory", new FactoryImpl());
+        assertEquals(0, cacheSize(), "前提：这份静态缓存进来时是空的，本用例看见的一切都是它自己造的");
+        SpiExtensionFactory.setApplicationContext(context);
+
+        Object fromFactory;
+        try {
+            // 猎物在场：工厂自己这条路完全能给出"容器里那一个"实例
+            fromFactory = new SpiExtensionFactory().getExtension(FactoryDemoSPI.class, "factory");
+            assertSame(context.getBean("factory"), fromFactory,
+                    "前提不成立的话下面的断言就没有意义 —— 反射 getBean(name) 这条路是通的");
+
+            // 而 ExtensionLoader 的构造函数里就 new 了一个 AdaptiveExtensionFactory（:79），
+            // 取扩展时（:120-126）走的是 getExtensionClass + clazz.newInstance()，一个字没问过那个工厂
+            FactoryDemoSPI fromLoader = ExtensionLoader.getExtensionLoader(FactoryDemoSPI.class)
+                    .getExtension("factory");
+            assertSame(FactoryImpl.class, fromLoader.getClass());
+            assertNotSame(fromFactory, fromLoader,
+                    "同一个名字、同一个容器：loader 给出来的仍是 newInstance 出来的另一个对象 ⇒ objectFactory 从没被读过");
+        } finally {
+            clearContextCache();
+        }
+        // 收尾自证：缓存真的空了，不是"以为清了"
+        assertEquals(0, cacheSize());
+        assertNull(new SpiExtensionFactory().getExtension(FactoryDemoSPI.class, "factory"));
+    }
+
+    @Test
+    @DisplayName("bug_ 容器缓存按类名做键：同类的第二个容器静默顶掉第一个，且没有任何移除 API")
+    void bug_springContextCacheIsKeyedByClassAndCannotBeEvicted() throws Exception {
+        FactoryImpl first = new FactoryImpl();
+        FactoryImpl second = new FactoryImpl();
+        try {
+            SpiExtensionFactory.setApplicationContext(new FakeSpiContext().put("factory", first));
+            assertEquals(1, cacheSize());
+            assertEquals(java.util.Collections.singletonList(FakeSpiContext.class.getName()),
+                    new java.util.ArrayList<>(contextCache().keySet()),
+                    "键取的是 applicationContext.getClass().getName()，不是实例");
+
+            SpiExtensionFactory.setApplicationContext(new FakeSpiContext().put("factory", second));
+            assertEquals(1, cacheSize(), "两个不同的容器实例在这份缓存里是同一个槽");
+            assertSame(second, new SpiExtensionFactory().getExtension(FactoryDemoSPI.class, "factory"),
+                    "第二个把第一个顶掉了：没有日志、没有异常，第一个容器的 bean 就此不可见");
+        } finally {
+            clearContextCache();
+        }
+        // 能往这份静态缓存里写的公开方法只有一个 put 型的 setter，移除侧一个都没有
+        List<String> mutators = new java.util.ArrayList<>();
+        for (java.lang.reflect.Method m : SpiExtensionFactory.class.getDeclaredMethods()) {
+            String n = m.getName().toLowerCase();
+            if (n.contains("remove") || n.contains("clear") || n.contains("unset") || n.contains("reset")) {
+                mutators.add(m.getName());
+            }
+        }
+        assertEquals(java.util.Collections.emptyList(), mutators,
+                "注册进去的容器在这个 JVM 里退不出去（本用例只能反射掏私有字段来还原现场）");
+        assertEquals(0, cacheSize());
+    }
+
+    private static Map<String, Object> contextCache() throws Exception {
+        java.lang.reflect.Field f = SpiExtensionFactory.class.getDeclaredField("CONTEXT_CACHE");
+        f.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> cache = (Map<String, Object>) f.get(null);
+        return cache;
+    }
+
+    private static int cacheSize() throws Exception {
+        return contextCache().size();
+    }
+
+    private static void clearContextCache() throws Exception {
+        contextCache().clear();
     }
 }
