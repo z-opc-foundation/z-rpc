@@ -187,7 +187,32 @@ public class RpcClient {
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
             log.error("Client exception: {}", cause.getMessage(), cause);
+            failAllPending(cause);
             ctx.close();
+        }
+
+        /**
+         * 连接没了这件事必须传达到每一个在飞的等待方：这个 handler 是唯一有机会做这件事的人，
+         * 缺了它，一条被对端关掉的连接会把上面所有调用都退化成"干等满 timeout"。
+         */
+        @Override
+        public void channelInactive(ChannelHandlerContext ctx) {
+            log.warn("Connection to RPC server {}:{} lost", host, port);
+            failAllPending(new RuntimeException("Connection closed"));
+            ctx.fireChannelInactive();
+        }
+    }
+
+    /**
+     * 逐条摘掉并叫醒：先 remove 再 complete，避免 {@link #sendRequest} catch 里那次
+     * remove 与这里的 complete 互相抢，留下一条永远不会有人再读的 future。
+     */
+    private void failAllPending(Throwable cause) {
+        for (String id : new java.util.ArrayList<>(pendingRequests.keySet())) {
+            CompletableFuture<RpcResponse> future = pendingRequests.remove(id);
+            if (future != null) {
+                future.completeExceptionally(cause);
+            }
         }
     }
 }

@@ -1,5 +1,6 @@
 package com.zifang.z.rpc.remoting;
 
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import org.apache.logging.log4j.LogManager;
@@ -23,8 +24,34 @@ public class RpcServerHandler extends SimpleChannelInboundHandler<RpcRequest> {
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, RpcRequest request) {
-        RpcResponse response = handleRequest(request);
-        ctx.writeAndFlush(response);
+        writeResponse(ctx, request.getRequestId(), handleRequest(request), true);
+    }
+
+    /**
+     * 这次写的失败不会走到 exceptionCaught：Netty 只把它交给 promise，而默认的
+     * writeAndFlush 不带监听器。于是"业务方法成功返回、返回值却序列化不出去"的这一帧会
+     * 无声消失 —— 调用方干等满一次超时，服务端一个字都不记。
+     * <p>
+     * 这里补上监听器：除了记日志，再换一份只带字符串的降级响应发出去（原帧带的是那个编不
+     * 出去的 result，降级这份一定编得出去），让调用方拿回一个错，而不是拿回寂静。
+     */
+    private void writeResponse(final ChannelHandlerContext ctx, final String requestId,
+                              final RpcResponse response, final boolean allowDegraded) {
+        ctx.writeAndFlush(response).addListener((ChannelFutureListener) future -> {
+            if (future.isSuccess()) {
+                return;
+            }
+            Throwable cause = future.cause();
+            String how = cause == null ? "unknown cause" : cause.toString();
+            log.error("Failed to send response for request {}: {}", requestId, how);
+            if (!allowDegraded) {
+                return;
+            }
+            // 必须是异常帧：RpcResponse.hasException() 只看 exception 字段，只填
+            // errorMessage 会被 RpcClient.invoke 当成"调用成功、结果为 null"。
+            writeResponse(ctx, requestId, RpcResponse.error(requestId,
+                    new RuntimeException("Failed to encode the RPC response: " + how)), false);
+        });
     }
 
     private RpcResponse handleRequest(RpcRequest request) {

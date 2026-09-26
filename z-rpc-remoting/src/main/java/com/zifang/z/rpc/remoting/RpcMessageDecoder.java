@@ -54,6 +54,9 @@ public class RpcMessageDecoder extends LengthFieldBasedFrameDecoder {
         // 读取版本号
         byte version = in.readByte();
         if (version != 1) {
+            // 与魔数那一支对称：抛出去之前必须把读位置还回帧首，否则缓冲里剩下的字节是从
+            // 帧中间开始的，下一次解码的起点就被这一次失败挪走了。
+            in.resetReaderIndex();
             throw new IllegalArgumentException("Unsupported version: " + version);
         }
 
@@ -77,8 +80,24 @@ public class RpcMessageDecoder extends LengthFieldBasedFrameDecoder {
         byte[] data = new byte[dataLength];
         in.readBytes(data);
 
+        // Java 原生序列化的流头是 AC ED 00 05：先按它判一次，好过把"这一帧压根不是
+        // 序列化流"交给 ObjectInputStream 去抛一个 getMessage()==null 的 EOFException。
+        if (dataLength < 4 || (data[0] & 0xFF) != 0xAC || (data[1] & 0xFF) != 0xED) {
+            throw new IllegalArgumentException("Frame body is not a Java serialization stream: "
+                    + "declaredLength=" + dataLength + ", bodyHead=" + hexHead(data));
+        }
+
         // 反序列化
-        Object obj = deserialize(data);
+        Object obj;
+        try {
+            obj = deserialize(data);
+        } catch (java.io.IOException e) {
+            // 长度与内容对不上（截断、或声明得比对象短）时，ObjectInputStream 抛的是
+            // EOFException/StreamCorruptedException，一个字的消息都没有；落进日志就只剩
+            // 一个类名。补上"是哪一帧"再往外抛。
+            throw new java.io.IOException("Failed to deserialize an RPC frame: declaredLength="
+                    + dataLength + ", bodyHead=" + hexHead(data), e);
+        }
 
         // 根据消息类型返回
         if (msgType == MSG_TYPE_REQUEST && obj instanceof RpcRequest) {
@@ -103,6 +122,18 @@ public class RpcMessageDecoder extends LengthFieldBasedFrameDecoder {
             }
         }
         return true;
+    }
+
+    /** 帧的开头几个字节，出错时拿来认脸。 */
+    private static String hexHead(byte[] data) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < data.length && i < 4; i++) {
+            if (i > 0) {
+                sb.append(' ');
+            }
+            sb.append(String.format("%02X", data[i] & 0xFF));
+        }
+        return sb.append(']').toString();
     }
 
     /**
