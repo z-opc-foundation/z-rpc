@@ -391,10 +391,159 @@ class ZRpcServiceExporterTest {
         assertFalse(rpcServer.isStarted(), "导出器不该顺带把 server 启动起来");
     }
 
-    /** 一个实现接口但会让 register 失败的 fixture（接口为 Object 之外的非服务类型）。 */
+    /**
+     * 注释原先写"会让 register 失败的 fixture"——第 24 轮实测证伪：{@code register(Runnable.class, bean, "1")}
+     * 走的是 {@code serviceMap.put("java.lang.Runnable:1", bean)}，成功返回。
+     * 保留它是因为 {@link #deadGuardShowingTheOldSwallowTestNeverEntersTheCatch} 要拿它当猎物。
+     */
     @ZRpcService(interfaceClass = Runnable.class, version = "1")
     static class NoInterfaceHolder implements Runnable {
         public void run() {
         }
+    }
+
+    // -------------------------------------------------- 第 24 轮：那支 catch 的入场券
+
+    /**
+     * 一台"每次注册都当场失败"的服务端。导出器只调 {@code register(Class, Object, String)} 这一个重载
+     * （三个 register* 入口的数量由 {@link #bug_mostAnnotationAttributesHaveNoEffect} 钉着），
+     * 打掉它就足以让 {@code export()} 里那支 {@code catch (Exception)} 真的收到东西。
+     */
+    static class RejectingRpcServer extends RpcServer {
+        private final java.util.concurrent.atomic.AtomicInteger attempts =
+                new java.util.concurrent.atomic.AtomicInteger();
+
+        RejectingRpcServer() {
+            super("127.0.0.1", 0);
+        }
+
+        @Override
+        public void register(Class<?> serviceInterface, Object serviceImpl, String version) {
+            attempts.incrementAndGet();
+            throw new IllegalStateException("r24 猎物：服务端拒收这次注册");
+        }
+
+        int attempts() {
+            return attempts.get();
+        }
+    }
+
+    @Test
+    @DisplayName("bug_真容器里注册失败 = 容器全绿、业务 bean 照在、serviceMap 一条没有")
+    void bug_registrationFailureKeepsTheContainerGreenAndExportsNothing() {
+        AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext();
+        ctx.register(RejectingRpcServer.class, ZRpcServiceExporter.class, AlphaImpl.class);
+        Throwable failure = null;
+        try {
+            ctx.refresh();
+        } catch (Throwable t) {
+            failure = t;
+        }
+        try {
+            assertNull(failure,
+                    "导出失败被 :71 那支 catch 吞掉 ⇒ refresh 不该因为它停下；现在它停了，形状变了");
+            RejectingRpcServer bean = ctx.getBean(RejectingRpcServer.class);
+            assertEquals(1, bean.attempts(),
+                    "前提腿：AlphaImpl 只有一个接口，容器这趟 refresh 必须真的一次次调到 register —— "
+                            + "一次都没调等于这条在空跑");
+            assertTrue(bean.getServiceMap().isEmpty(),
+                    "register 当场抛了，serviceMap 里却什么都没留下 —— 服务端一侧没有任何『导出失败』的记账: "
+                            + bean.getServiceMap().keySet());
+            assertNotNull(ctx.getBean(AlphaImpl.class),
+                    "业务 bean 照常存活：它只是个普通 Spring bean，没人告诉过它自己不是 RPC 服务");
+            assertFalse(bean.isStarted(), "导出器不负责启动服务端");
+        } finally {
+            try {
+                ctx.close();
+            } catch (Throwable ignored) {
+                // refresh 没走完时 close 只做能做的清理
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("bug_队列排空时注册失败 = 事件回调不冒泡，队列照排空，失败不重试也不记账")
+    void bug_pendingFlushFailureNeitherEscapesNorKeepsTheQueue() throws Exception {
+        ZRpcServiceExporter exporter = new ZRpcServiceExporter();
+        exporter.postProcessAfterInitialization(new AlphaImpl(), "alphaImpl");
+        exporter.postProcessAfterInitialization(new TwoFaceImpl(), "twoFaceImpl");
+        assertEquals(3, pendingListOf(exporter).size(),
+                "前提腿：Alpha 1 个接口 + TwoFace 2 个接口，此刻应当排着 3 条待注册任务");
+
+        RejectingRpcServer server = new RejectingRpcServer();
+        Field f = ZRpcServiceExporter.class.getDeclaredField("rpcServer");
+        f.setAccessible(true);
+        f.set(exporter, server);
+        try {
+            exporter.onContextRefreshed();
+        } catch (RuntimeException e) {
+            throw new AssertionError(
+                    "ContextRefreshedEvent 上的异常会当场刷死整个容器，:71 那支 catch 正是拦它的: " + e, e);
+        }
+        assertEquals(3, server.attempts(), "三条任务都到了 register，却没有一条成功");
+        assertTrue(server.getServiceMap().isEmpty(),
+                "服务端一条服务都没得: " + server.getServiceMap().keySet());
+        assertTrue(pendingListOf(exporter).isEmpty(),
+                "失败的注册既不重试也不留在队列里 —— 排空发生在 clear() 而不是成功之后");
+    }
+
+    @Test
+    @DisplayName("旧那条 registerFailureIsSwallowed 从不进 catch：NoInterfaceHolder 其实注册成功")
+    void deadGuardShowingTheOldSwallowTestNeverEntersTheCatch() throws Exception {
+        RpcServer rpcServer = new RpcServer("127.0.0.1", AnnotationContract.freePort());
+        ZRpcServiceExporter exporter = newExporter(rpcServer);
+
+        exporter.postProcessAfterInitialization(new NoInterfaceHolder(), "boom");
+
+        Map<String, Object> map = serviceMapOf(rpcServer);
+        assertEquals(1, map.size(),
+                "实测：这个 fixture 让 register 走通了 ⇒ 名为 registerFailureIsSwallowed 的那条用例"
+                        + "从来没进过 :71 的 catch（它的断言只证明了一次正常导出）: " + map.keySet());
+        assertTrue(map.containsKey(Runnable.class.getName() + ":1"),
+                "键就是普通的 {接口}:{版本}，没有任何异常发生: " + map.keySet());
+    }
+
+    /** 一台"数得清被调了几次"的服务端：register 先记账再照常走 super，所以 serviceMap 是真的。 */
+    static class CountingRpcServer extends RpcServer {
+        private final java.util.concurrent.atomic.AtomicInteger registers =
+                new java.util.concurrent.atomic.AtomicInteger();
+
+        CountingRpcServer() {
+            super("127.0.0.1", 0);
+        }
+
+        @Override
+        public void register(Class<?> serviceInterface, Object serviceImpl, String version) {
+            registers.incrementAndGet();
+            super.register(serviceInterface, serviceImpl, version);
+        }
+
+        int registers() {
+            return registers.get();
+        }
+    }
+
+    @Test
+    @DisplayName("待注册任务每条只跑一次：第二次事件不得重跑（老用例判的是 map size，同键同值重复 put 它看不见）")
+    void flushedTasksRunExactlyOnceAcrossRepeatedEvents() throws Exception {
+        ZRpcServiceExporter exporter = new ZRpcServiceExporter();
+        exporter.postProcessAfterInitialization(new AlphaImpl(), "alphaImpl");
+        exporter.postProcessAfterInitialization(new TwoFaceImpl(), "twoFaceImpl");
+
+        CountingRpcServer server = new CountingRpcServer();
+        Field f = ZRpcServiceExporter.class.getDeclaredField("rpcServer");
+        f.setAccessible(true);
+        f.set(exporter, server);
+
+        exporter.onContextRefreshed();
+        assertEquals(3, server.registers(), "第一次事件应当把三条待注册任务各跑一次");
+        assertEquals(3, server.getServiceMap().size(),
+                "prey：三条任务各占一个键，所以 map size 此刻确实是 3: " + server.getServiceMap().keySet());
+
+        exporter.onContextRefreshed();
+        assertEquals(3, server.registers(),
+                "第二次事件把老任务又跑了一遍 —— pendingRegistrationsFlushOnContextRefreshed 判的是 map size，"
+                        + "而同键同值重复 put 不改变 size，所以它结构上看不到这件事（第 24 轮注入 m24-02 实测：它不红）");
+        assertTrue(pendingListOf(exporter).isEmpty(), "队列此刻应当是空的");
     }
 }
