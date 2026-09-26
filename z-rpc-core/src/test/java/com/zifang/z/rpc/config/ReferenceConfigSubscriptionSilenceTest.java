@@ -34,6 +34,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 第 26 轮审的是导出侧那次被吞掉的注册（`ServiceConfig`），这一族是它在消费侧的镜像副本：
  * 三条主张分别钉"订阅失败唯一的痕迹是日志"、"那句已连接是在给一次没发生的连接背书"、
  * "那句『适配暂时禁用』在订阅真的成功时照样打印"，第四条钉"注销侧既不复述也不否认那句已连接"。
+ *
+ * 第五条（第 28 轮补）钉的是"那句已连接与有没有接上线无关"：接线成功那一次它照样打印。
+ * 它存在的理由是第 27 轮量出的一个判据缺口 —— 把整行摘掉（m27-04）与给它加
+ * `registryService != null` 守卫（m27-05，即"把谎改成真话"）在前四条上的红集逐字相同，
+ * 只有这一条能让两支分开：摘行让它红，加守卫让它绿。
  */
 class ReferenceConfigSubscriptionSilenceTest {
 
@@ -409,6 +414,39 @@ class ReferenceConfigSubscriptionSilenceTest {
             assertEquals(1, countContaining(errors, DESTROY_REGISTRY_FAILURE),
                     "接线注销失败时那句 ERROR 没出现，对照腿空跑：" + errors);
             assertEquals(1, blow.destroyCalls.get(), "注销没被调到，上面的读数是空的");
+        } finally {
+            cap.close();
+        }
+    }
+
+    /**
+     * 判别腿：这一条只在"那句被整行摘掉"时红，在"那句被加上 `registryService != null` 守卫"时绿。
+     * 前四条都在读没接线那一支（那里两种改法产生的字节差别看不出来），所以第 27 轮的两支注入红集相同。
+     */
+    @Test
+    @DisplayName("bug_connectionClaimIsPrintedWhetherOrNotAnythingIsWired：接线成功那一次，那句已连接照样是无条件打印的")
+    void bug_connectionClaimIsPrintedWhetherOrNotAnythingIsWired() {
+        Capturer cap = Capturer.open();
+        try {
+            assertTrue(cap.levelIsDebug(), "捕获挂不上，下面的『恰好 1 条』就是空跑");
+
+            CountingRegistry wired = new CountingRegistry();
+            ReferenceConfig<Speaker> ref = reference(wired);
+            ref.get();
+            try {
+                List<String> infos = cap.messages(ReferenceConfig.class, Level.INFO);
+                assertNotNull(ref.getRegistryService(), "前提：这一次字段里真的有注册中心 —— 审的是『接上线时它说不说』");
+                assertEquals(1, wired.subscribeCalls.get(), "前提：这次订阅真的发生了一次");
+                assertEquals(1, cap.count(RegistryDirectory.class, Level.INFO, SUBSCRIBED_PREFIX),
+                        "成功行不在场，这一支就不是『订阅真成功』的那一支：" + cap.messages(RegistryDirectory.class, Level.INFO));
+                assertTrue(containsPrefix(infos, "ReferenceConfig initialized"),
+                        "同一批里 ReferenceConfig 的其它 INFO 都不在，说明尺没在跑：" + infos);
+                assertEquals(1, cap.count(ReferenceConfig.class, Level.INFO, CONNECTED_CLAIM_PREFIX),
+                        "接上线、订阅也成功了，那句已连接却不在场 —— 那它就变成了条件打印，"
+                                + "第 27 轮那条主张（无条件背书）要改，而 m27-05 那支注入正是改法之一：" + infos);
+            } finally {
+                ref.destroy();
+            }
         } finally {
             cap.close();
         }
