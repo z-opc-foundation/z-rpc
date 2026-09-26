@@ -31,7 +31,11 @@ import static org.junit.jupiter.api.Assertions.fail;
  * 第 25 轮：{@link ZRpcAutoConfiguration} 构造函数里那次 SPI 自检（ZRpcAutoConfiguration.java:29-34）。
  *
  * <p>形状与第 22/23/24 轮同族：`catch (Exception e)` 之后只 `log.warn(..., e.getMessage())`，
- * 构造函数照常返回、容器照常 refresh，进程里没有任何位点能问"默认 Protocol 到底加载了没有"。
+ * 构造函数照常返回、容器照常 refresh。"没有痕迹"这句要限定清楚：**日志侧其实是有字的**（实测两次
+ * 自检失败会在日志里留下 `ExtensionLoader - No Z-RPC extensions found for type …` 与
+ * `ZRpcAutoConfiguration - Protocol SPI not loaded: …` 两行 WARN），本用例钉的是**可编程侧**：
+ * 失败既不上抛、也不记账，这个 @Configuration 类除了 logger 字段一个状态都没留，
+ * 而日志那两行有没有打，今天没有任何尺在读（见报告 §19.3 的 m25-04）。
  *
  * <p>两条"到不到得了"都是量出来的，不是推的（用一次性量具把值逼进红消息，见报告 §19.1）：
  * ① 正常装配里自检**成功** —— 本模块 classpath 上 `getDefaultExtension()` 实测返回
@@ -166,9 +170,9 @@ public class ZRpcAutoConfigurationSelfCheckTest {
             assertNotNull(instance, "构造函数返回了 null？");
             List<String> fields = fieldNames(instance.getClass());
             assertEquals(Collections.singletonList("log"), fields,
-                    "主张：这台机器上没有任何位点能问出『默认 Protocol 没加载』—— "
-                            + "这个 @Configuration 类除了 log4j 的 logger 字段，一个状态都没留。"
-                            + "自检失败的结果既不上抛、也不记账：" + fields);
+                    "主张：这台机器上没有任何**可编程**位点能问出『默认 Protocol 没加载』（日志那两行 WARN 不算位点，"
+                            + "而它们有没有打今天没有尺在读）—— 这个 @Configuration 类除了 log4j 的 logger 字段，"
+                            + "一个状态都没留。自检失败的结果既不上抛、也不记账：" + fields);
         } finally {
             child.close();
         }
