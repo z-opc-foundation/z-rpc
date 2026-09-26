@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -240,6 +241,31 @@ class ServiceConfigTest {
             // getPort() 的另一半（§7 第 27 行）：绑 0 之后它交回真实端口，starter 日志不再打印 :0
             assertEquals(actual, server.getPort(),
                     "getPort() 应当交回内核挑的那个端口，实收 " + server.getPort());
+        } finally {
+            cfg.unexport();
+        }
+    }
+
+    @Test
+    @DisplayName("setRpcServer() 注入过的那台必须被复用，而不是再 new 一台去抢同一个端口")
+    void injectedServerIsReusedInsteadOfANewBind() throws Exception {
+        RpcServer injected = new RpcServer("127.0.0.1", 0);
+        injected.start(true);
+        int port = injected.getPort();
+        assertTrue(port > 0, "注入的这台应当已绑定，实收 " + port);
+
+        ServiceConfig<Echo> cfg = config(port);
+        cfg.setRpcServer(injected);
+        cfg.export();
+        try {
+            assertSame(injected, cfg.getRpcServer(),
+                    "export() 把注入的服务器换掉了：同端口的第二台 bind 必然失败，服务也就没注册上");
+
+            ReferenceConfig<Echo> ref = new ReferenceConfig<>();
+            ref.setInterfaceClass(Echo.class);
+            ref.setUrl("z-rpc://127.0.0.1:" + port);
+            assertEquals("echo:reuse", ref.get().say("reuse"),
+                    "调用要落到注入的那台服务器上才说明注册没丢");
         } finally {
             cfg.unexport();
         }

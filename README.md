@@ -680,14 +680,14 @@ mvn spring-boot:run          # http://localhost:9090
 
 ```bash
 cd z-rpc-examples/user-service
-mvn spring-boot:run          # 监听 20880
+mvn spring-boot:run          # RPC 监听 20880，HTTP 20881
 ```
 
 ### 4. 启动 Consumer Demo
 
 ```bash
 cd z-rpc-examples/order-service
-mvn spring-boot:run          # 监听 20890
+mvn spring-boot:run          # HTTP 监听 20890
 ```
 
 ### 5. 测试调用

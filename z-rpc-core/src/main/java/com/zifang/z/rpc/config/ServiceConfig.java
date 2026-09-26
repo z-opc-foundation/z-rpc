@@ -251,7 +251,11 @@ public class ServiceConfig<T> {
     }
 
     private void startRpcServer() {
-        rpcServer = new RpcServer(port);
+        // setRpcServer() 注入过的就复用；无条件 new 会让同一端口的第二个服务
+        // 去重复 bind，也把容器里已经在跑的那台服务器丢掉。
+        if (rpcServer == null) {
+            rpcServer = new RpcServer(port);
+        }
         rpcServer.registerService(interfaceClass, ref);
 
         // 异步启动服务器

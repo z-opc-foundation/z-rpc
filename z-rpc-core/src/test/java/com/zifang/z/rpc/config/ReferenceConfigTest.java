@@ -297,8 +297,15 @@ class ReferenceConfigTest {
     }
 
     private static String readAll(java.net.URL u) {
+        // InputStream.readAllBytes() 是 JDK 9 API；这仓在 -source 8 下构建，JDK 8 机器上编译不过
         try (java.io.InputStream in = u.openStream()) {
-            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+            byte[] chunk = new byte[4096];
+            int n;
+            while ((n = in.read(chunk)) != -1) {
+                buf.write(chunk, 0, n);
+            }
+            return new String(buf.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new AssertionError(e);
         }

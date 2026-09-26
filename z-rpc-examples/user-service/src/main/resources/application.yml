@@ -1,5 +1,7 @@
 server:
-  port: 20880
+  # 不能和下面 z.rpc.server.port 用同一个 20880：Tomcat 先 bind，Netty 随后 BindException，
+  # 整个应用起不来（250 机 JDK 8 实跑复现）。RPC 端口留给消费者拨号，HTTP 挪到 20881。
+  port: 20881
   servlet:
     context-path: /
 
