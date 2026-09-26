@@ -294,7 +294,7 @@ server.stop();
 判据（不是文字，是跑得动的）：**有落点 = 这个属性在对应处理器源码里以 `annotation.<属性>()` 被读到至少一次；没有落点 = 0 次**。两列的名字合起来必须**正好等于** `ZRpcService.class.getDeclaredMethods()` 的名字集合（**逐个名字比，不比个数**），"属性总数"那一列也必须等于反射出来的数量 —— 全在 `ConfigLandingContractTest` 里。
 
 - `@ZRpcService` 的 `interfaceClass` 算有落点：不写则取实现类的唯一接口，多接口全导。剩下 9 个放不进去 —— `RpcServer` 的三个 `register*` 重载（`registerService(Class, Object)` / `registerService(String, Object)` / `register(Class, Object, String)`）里**没有任何 int/long 参数位**可放，这条也是反射量的。
-- **`@ZRpcReference` 的 `interfaceClass` 是本轮从"有落点"列挪出来的**：注入器调的是 `buildReferenceConfig(annotation, field.getType())`，整个文件里 `annotation.interfaceClass()` 命中 **0** 次 —— 接口取的是**字段声明类型**，注解里那个 `Class` 从来没被读过。证据用例：字段声明成 `Alpha` 而注解写 `interfaceClass = Beta.class`，`ReferenceConfig.getInterfaceClass()` 回来的是 `Alpha`（`interfaceClassIsIgnoredAndFieldDeclaredTypeWins`）。
+- **`@ZRpcReference` 的 `interfaceClass` 是本轮从"有落点"列挪出来的**：注入器调的是 `buildReferenceConfig(annotation, field.getType())`，整个文件里 `annotation.interfaceClass()` 命中 **0** 次 —— 接口取的是**字段声明类型**，注解里那个 `Class` 从来没被读过。证据用例：字段声明成 `Alpha` 而注解写 `interfaceClass = Beta.class`，`ReferenceConfig.getInterfaceClass()` 回来的是 `Alpha`（`bug_annotationInterfaceClassIsNeverRead`）。
 - `check` / `lazy` / `connections` / `client` / `serialization` 这 5 个在 `ReferenceConfig` 里 **field / setter / getter 全 0 命中**（上一版这里写的是"5 个里 4 个"，实测是 5 个都没有）；搬过去的 `timeout` / `cluster` / `loadbalance` / `retries` 下游没人读。
 
 `@ZRpcReference` 的 `check` 默认 `true` 完全不起作用：对一个必连不上的 `zrpc://127.0.0.1:1`，注入器照样返回 JDK 代理，故障被推迟到首次调用（报告 `bug_deadUrlStillYieldsProxy`）。
@@ -445,7 +445,7 @@ mvn -B clean test                 # 反应堆 14 个模块
 cd z-rpc-admin && mvn -B clean test   # admin 不在 reactor，要单独跑
 ```
 
-当前读数（2026-09-26，落点尺轮之后）：**540 条用例 = 反应堆 528 + admin 12**，50 个测试源文件（524 个 `@Test` / `@ParameterizedTest` 标注）/ 42 个 surefire 报告类，`fail / error / skip` 全 0。README 契约轮的 12 条钉本 README 的模块表 / SPI 表 / 端口 / 许可 / 常量主张，落点尺轮新增的 9 条钉本 README 那两张**落点表**（33 个 yaml key 逐个判 + 两个注解的属性名字集合），两组都双向注入验过会红（报告 §11.2、§12.3）。同一棵树在 macOS/JDK 25/Maven 3.9.14 与 Ubuntu 18.04/JDK 1.8.0_362/Maven 3.6.0 上逐模块读数相同（只有耗时不同）。逐模块分布与被钉住的缺陷清单见 [`_doc/002_测试报告.md`](_doc/002_测试报告.md)。
+当前读数（2026-09-26，引用尺轮收尾之后）：**546 条用例 = 反应堆 534 + admin 12**，50 个测试源文件（530 个 `@Test` / `@ParameterizedTest` 标注）/ 42 个 surefire 报告类，`fail / error / skip` 全 0。钉本 README（收尾那把连本报告一起钉）的尺现在共 **25** 条：README 契约轮的 12 条管模块表 / SPI 表 / 端口 / 许可 / 常量 / 测试源文件数，落点尺轮的 7 条管那两张**落点表**（33 个 yaml key 逐个判 + 两个注解的属性名字集合），引用尺轮的 6 条管**文档指向仓库内部的指针、以及文档转述出去的计数** —— 点名的 `bug_` 用例名要是真方法、写的"报告 §x.y / 第 N 条"要在报告里落得下去、点名的驼峰标识符要么搜得到要么那一行明说不存在、写下的每个行号指针（`名字`（:行号） 与 `名字:行号` 两形）要落在那个方法在盘上的区间里、报告里转述的 README 指针计数要等于现场重数的。前三组都双向注入验过会红（报告 §11.2、§12.3、§13.3），引用尺那 3 支变异的靶子就是本轮真实改掉的那处假用例名；收尾那把行号尺的三支猎物在测试里，它**第一次真跑就点出 5 处落不下去**（§13.1 末、§8 第 18 条），而它后来抓到的一次漂移，抓到的是**自己那一格**——给这把尺补猎物把那 18 行插进了它自己的声明之前（报告 §13.1 末）。最后那把转述计数尺第一次真跑抓到的是**报告自己**：那句里的 `§` 计数已从 9 涨到 11，而报告附的期望输出还写着 9（报告 §8 第 19 条）。这一轮的注入台账共 **6** 支、6 支都按预期落定（报告 §13.3）：一支把小节绑定窗口退回旧形状，分了两次来证红——一次让真文档点火，一次只留尺自带的猎物点火（报告 §13.2 第 7 条）；另一支方向朝绿，摘掉"去读盘上那份报告"那一句之后 18 条重新全绿，证的就是那句承重（报告 §13.2 第 8 条）。同一棵树在 macOS/JDK 25/Maven 3.9.14 与 Ubuntu 18.04/JDK 1.8.0_362/Maven 3.6.0 上逐模块读数相同（只有耗时不同）。逐模块分布与被钉住的缺陷清单见 [`_doc/002_测试报告.md`](_doc/002_测试报告.md)。
 
 > 上一版这里写的 "312 + 78 + 14 + 31 + 22 + 18 + 15 PASS" 在仓库里没有任何对应产物，已按实测替换。
 

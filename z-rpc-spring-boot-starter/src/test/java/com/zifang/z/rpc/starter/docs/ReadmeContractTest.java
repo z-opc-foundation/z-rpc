@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -912,6 +913,168 @@ class ReadmeContractTest {
         throw new AssertionError("README 的模块表里没有 " + moduleName + " 这一行");
     }
 
+    @Test
+    @DisplayName("README 正文点名的驼峰标识符必须解析得到，除非那一行明说它不存在")
+    void proseIdentifiersCitedInReadmeResolveOrAreCitedAsAbsent() throws IOException {
+        String p = prose(readme());
+        List<String> cited = new ArrayList<String>();
+        Matcher m = PROSE_CAMEL.matcher(p);
+        while (m.find()) {
+            if (!cited.contains(m.group(1))) {
+                cited.add(m.group(1));
+            }
+        }
+        Collections.sort(cited);
+        assertTrue(cited.size() >= 8, "正文只抽到 " + cited.size() + " 个驼峰名字，抽取器大概失效了");
+
+        StringBuilder allJava = javaCorpus();
+
+        List<String> unresolved = new ArrayList<String>();
+        for (String c : cited) {
+            if (allJava.indexOf(c) >= 0) {
+                continue;
+            }
+            if (citedAsAbsent(p, c)) {
+                continue;
+            }
+            unresolved.add(c);
+        }
+        assertEquals(Collections.emptyList(), unresolved,
+                "README 点了仓里搜不到的名字（既不存在、也没写成\"不存在\"）");
+
+        // 反向对照 1：真存在的名字不许被误判
+        assertTrue(allJava.indexOf("registryModeWorksWhenHandWired") >= 0, "对照失效：这条真用例名都不在参照集里");
+        assertTrue(cited.contains("registryModeWorksWhenHandWired"), "抽取器没抽到它，上面的放行没有意义");
+        // 反向对照 2（猎物）：本轮真实过错的那个名字，同一把尺必须说不。
+        // 名字必须拼出来 —— 字面量写在这儿，参照集（含 src/test，也就是本文件）就含它，
+        // 尺是在对自己出的题作弊：第一次跑就是这么红的。
+        String prey = "interfaceClassIsIgnored" + "AndFieldDeclaredTypeWins";
+        assertFalse(allJava.indexOf(prey) >= 0, "对照失效：那个不存在的名字居然在仓里搜得到");
+        String planted = "- **证据用例**：字段声明成 `Alpha`（`" + prey + "`）。\n";
+        assertTrue(unresolvedIn(planted, allJava).contains(prey),
+                "尺抓不到本轮真实发生过的那种错（引用一个不存在的用例名），放行没有意义");
+    }
+
+    /** 某一串文本里那些"仓里搜不到、又没被写成不存在"的名字。 */
+    private static List<String> unresolvedIn(String chunk, StringBuilder allJava) {
+        List<String> out = new ArrayList<String>();
+        Matcher m = PROSE_CAMEL.matcher(chunk);
+        while (m.find()) {
+            String c = m.group(1);
+            if (allJava.indexOf(c) < 0 && !citedAsAbsent(chunk, c)) {
+                out.add(c);
+            }
+        }
+        return out;
+    }
+
+    /** 只有"明说它不存在"的句子才允许出现搜不到的名字，且每种说法都要在场（防口径漂成放行）。 */
+    private static boolean citedAsAbsent(String prose, String name) {
+        boolean seenMarker = false;
+        for (String line : prose.split("\n")) {
+            if (!line.contains("`" + name + "`")) {
+                continue;
+            }
+            for (String marker : ABSENTEES) {
+                if (line.contains(marker)) {
+                    seenMarker = true;
+                    break;
+                }
+            }
+        }
+        return seenMarker;
+    }
+
+    /**
+     * 参照集：全仓 src/main + src/test 的 .java 拼成一串，用来判"这个名字仓里到底有没有"。
+     * <p>
+     * 空/漏的参照集会让上面那把尺恒真，所以卫兵必须是**从盘上算出来的**结构判据 ——
+     * 第一版这里写的是 {@code scanned > 300}，是猜的：仓里 main+test 一共 165 个 .java，
+     * 尺第一次跑就红在自己的卫兵上。改成"每个摆了 src/main/java 的模块都必须被扫到"。
+     */
+    private static StringBuilder javaCorpus() throws IOException {
+        StringBuilder allJava = new StringBuilder();
+        Set<String> modulesSeen = new LinkedHashSet<String>();
+        File root = repoRoot();
+        String base = root.getAbsolutePath().replace('\\', '/') + "/";
+        List<File> srcs = new ArrayList<File>();
+        collectJava(root, srcs);
+        for (File f : srcs) {
+            String path = f.getAbsolutePath().replace('\\', '/');
+            if (!path.startsWith(base)
+                    || (!path.contains("/src/main/") && !path.contains("/src/test/"))) {
+                continue;
+            }
+            allJava.append(text(f)).append('\n');
+            String rel = path.substring(base.length());
+            int slash = rel.indexOf('/');
+            modulesSeen.add(slash < 0 ? rel : rel.substring(0, slash));
+        }
+        File[] kids = root.listFiles();
+        assertTrue(kids != null, "仓库根列不出来目录：" + root);
+        List<String> missed = new ArrayList<String>();
+        for (File k : kids) {
+            if (k.isDirectory() && new File(k, "src/main/java").isDirectory()
+                    && !modulesSeen.contains(k.getName())) {
+                missed.add(k.getName());
+            }
+        }
+        assertTrue(allJava.length() > 100000, "参照集只有 " + allJava.length() + " 字节，遍历肯定漏了");
+        assertTrue(missed.isEmpty(), "这些模块一个 .java 都没进参照集：" + missed);
+        return allJava;
+    }
+
+    private static void collectJava(File dir, List<File> sink) {
+        File[] kids = dir.listFiles();
+        if (kids == null) {
+            return;
+        }
+        for (File k : kids) {
+            String name = k.getName();
+            if (k.isDirectory()) {
+                if ("target".equals(name) || "node_modules".equals(name) || ".git".equals(name)) {
+                    continue;
+                }
+                collectJava(k, sink);
+            } else if (name.endsWith(".java")) {
+                sink.add(k);
+            }
+        }
+    }
+
+    private static final Pattern PROSE_CAMEL = Pattern.compile("`([a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*)`");
+
+    /**
+     * 允许搜不到的名字出现的字样 —— 全是"这句话在说它不存在"的写法。
+     * 刻意不含 "命中 **0**"/"从来没被读过" 这种近义说法：本轮那个假用例名正是躲在"命中 0 次"的
+     * 句子里的，把这类字样放进来等于给尺开后门。
+     */
+    private static final String[] ABSENTEES = {"不存在", "而不是", "没有任何", "没有这个", "并未", "未接线"};
+
+    /** 这份"允许名单"本身要可复算：每条都必须真的在正文里被某种 ABSENT 字样罩着。 */
+    @Test
+    @DisplayName("「引用为不存在」的豁免不是白名单：每个躲进豁免的名字都要真带纠正字样")
+    void everyAbsentCitationCarriesItsOwnMarker() throws IOException {
+        String p = prose(readme());
+        StringBuilder allJava = javaCorpus();
+        List<String> exempted = new ArrayList<String>();
+        Matcher m = PROSE_CAMEL.matcher(p);
+        while (m.find()) {
+            String c = m.group(1);
+            if (allJava.indexOf(c) < 0 && !exempted.contains(c)) {
+                exempted.add(c);
+            }
+        }
+        Collections.sort(exempted);
+        assertTrue(exempted.size() >= 1, "一个豁免名字都没有 ⇒ 上一把尺的豁免分支从没走过，它的通过不算证据");
+        for (String c : exempted) {
+            assertTrue(citedAsAbsent(p, c), "名字 " + c + " 搜不到又没带纠正字样，不该被豁免");
+        }
+        // 猎物：同一个名字去掉纠正字样，豁免必须失效
+        assertFalse(citedAsAbsent("泛化调用 `createGenericProxy` 可用。\n", "createGenericProxy"),
+                "去掉\"不存在\"三个字就能放行，豁免等于没有");
+    }
+
     private static boolean carriesPort(String cell, int port) {
         return Pattern.compile("(?<!\\d)" + port + "(?!\\d)").matcher(cell).find();
     }
@@ -922,5 +1085,544 @@ class ReadmeContractTest {
             out.add(r[0]);
         }
         return out;
+    }
+
+    // ---------------------------------------------------------------- README → 报告 / 用例名 的引用
+
+    private static final Pattern FENCE = Pattern.compile("(?s)```[a-z]*.*?```");
+    private static final Pattern BUG_CITED = Pattern.compile("`(bug_[A-Za-z0-9_]+)`");
+    private static final Pattern REPORT_DEFECT_ID = Pattern.compile("\\b([HN]\\d{1,2})\\b");
+    private static final Pattern REPORT_SECTION_HEAD = Pattern.compile("(?m)^#{2,3}\\s+([0-9]+(?:\\.[0-9]+)?)");
+    private static final Pattern REPORT_DEFECT_IDS = Pattern.compile("\\b([HN]\\d{1,3})\\b");
+    private static final Pattern REF_LINE = Pattern.compile("(?m)^.*报告.*$");
+    private static final Pattern SEC_REF = Pattern.compile("§([0-9]+(?:\\.[0-9]+)*)");
+    private static final Pattern ITEM_REF = Pattern.compile("§([0-9]+)[^第§\\n]{0,12}第\\s*([0-9/、]+)\\s*(行|条)");
+    private static final Pattern TABLE_ROW_NO = Pattern.compile("(?m)^\\|\\s*(\\d+)\\s*\\|");
+    private static final Pattern NUMBERED_ITEM_NO = Pattern.compile("(?m)^(\\d+)\\.\\s");
+
+    /** README 的正文（剥掉所有围栏）：围栏里是示例代码，那里的名字归 javac 门禁与幽灵名尺管。 */
+    private static String prose(String readme) {
+        return FENCE.matcher(readme).replaceAll("");
+    }
+
+    private static String report() throws IOException {
+        File f = new File(repoRoot(), "_doc/002_测试报告.md");
+        assertTrue(f.isFile(), "报告不在盘上，指向报告的引用无从核对：" + f);
+        String s = text(f);
+        assertTrue(s.length() > 20000, "报告只有 " + s.length() + " 字节，不像完整版");
+        return s;
+    }
+
+    /** 全仓 src/test 里 {@code void name(} 形状的方法名集合。 */
+    private static Set<String> testMethodNames() throws IOException {
+        Set<String> out = new LinkedHashSet<String>();
+        collectTestMethods(repoRoot(), out);
+        assertTrue(out.size() > 400, "只数到 " + out.size() + " 个测试方法名，遍历肯定漏了");
+        return out;
+    }
+
+    private static void collectTestMethods(File dir, Set<String> sink) throws IOException {
+        File[] kids = dir.listFiles();
+        if (kids == null) {
+            return;
+        }
+        for (File k : kids) {
+            String name = k.getName();
+            if (k.isDirectory()) {
+                if ("target".equals(name) || "node_modules".equals(name) || ".git".equals(name)) {
+                    continue;
+                }
+                collectTestMethods(k, sink);
+            } else if (name.endsWith(".java") && k.getAbsolutePath().contains("/src/test/java/")) {
+                Matcher m = Pattern.compile("\\bvoid\\s+([A-Za-z0-9_]+)\\s*\\(").matcher(text(k));
+                while (m.find()) {
+                    sink.add(m.group(1));
+                }
+            }
+        }
+    }
+
+    /** 报告里第 N 节那一段（从 {@code ## N.} 到下一个 {@code ## }）。 */
+    private static String reportSection(String report, String number) {
+        Matcher head = Pattern.compile("(?m)^##\\s+" + number + "\\.").matcher(report);
+        if (!head.find()) {
+            return null;
+        }
+        Matcher next = Pattern.compile("(?m)^##\\s").matcher(report.substring(head.end()));
+        return next.find() ? report.substring(head.end(), head.end() + next.start()) : report.substring(head.end());
+    }
+
+    /** 数出某一节里的"第 k 行/第 k 条"分母：行取表格首列号，条取顶层编号项。 */
+    private static int itemCountIn(String sectionChunk, boolean tableRows) {
+        int max = 0;
+        Matcher m = (tableRows ? TABLE_ROW_NO : NUMBERED_ITEM_NO).matcher(sectionChunk);
+        while (m.find()) {
+            max = Math.max(max, Integer.parseInt(m.group(1)));
+        }
+        return max;
+    }
+
+    /** 一行的引用能不能落下去；返回说不通的条目。抽成函数是为了能在同一条用例里喂猎物。 */
+    private static List<String> unresolvedRefs(String line, Set<String> testNames, Set<String> defectIds,
+                                              Map<String, Integer> sectionSize) {
+        List<String> bad = new ArrayList<String>();
+        Matcher idm = REPORT_DEFECT_ID.matcher(line);
+        while (idm.find()) {
+            if (!defectIds.contains(idm.group(1))) {
+                bad.add("报告里没有缺陷编号 " + idm.group(1));
+            }
+        }
+        Matcher sm = SEC_REF.matcher(line);
+        while (sm.find()) {
+            if (!sectionSize.containsKey(sm.group(1))) {
+                bad.add("报告里没有 §" + sm.group(1) + " 这一节");
+            }
+        }
+        Matcher im = ITEM_REF.matcher(line);
+        while (im.find()) {
+            Integer size = sectionSize.get(im.group(1));
+            if (size == null) {
+                bad.add("要引用 §" + im.group(1) + " 的第几条，但报告里没有 §" + im.group(1));
+                continue;
+            }
+            for (String k : im.group(2).split("[/、]")) {
+                if (k.isEmpty()) {
+                    continue;
+                }
+                int n = Integer.parseInt(k);
+                if (n > size) {
+                    bad.add("报告 §" + im.group(1) + " 的\"第 " + n + " " + im.group(3) + "\"越界（该节只数到 "
+                            + size + " " + im.group(3) + "）");
+                }
+            }
+        }
+        return bad;
+    }
+
+    @Test
+    @DisplayName("README 点名的 bug_ 用例必须真是某个测试类里的方法")
+    void bugNamesCitedInReadmeExistAsTestMethods() throws IOException {
+        String p = prose(readme());
+        Set<String> truth = testMethodNames();
+        List<String> cited = new ArrayList<String>();
+        Matcher m = BUG_CITED.matcher(p);
+        while (m.find()) {
+            if (!cited.contains(m.group(1))) {
+                cited.add(m.group(1));
+            }
+        }
+        Collections.sort(cited);
+        assertTrue(cited.size() >= 8, "README 只点到 " + cited.size() + " 个 bug_ 用例名，抽取器大概失效了");
+        List<String> missing = new ArrayList<String>();
+        for (String c : cited) {
+            if (!truth.contains(c)) {
+                missing.add(c);
+            }
+        }
+        assertEquals(Collections.emptyList(), missing, "README 点了不存在的用例名，读者按名搜用例会搜不到");
+
+        // 阳性对照：抽取器真在抽（这些名字确实在集合里），且谓词抓得到编出来的名字
+        assertTrue(cited.contains("bug_exportLiesWhenBindFails"), "猎物：README 确实点名了这条");
+        assertFalse(truth.contains("bug_thisTestDoesNotExistRhyme"), "对照失效：编一个 bug_ 名字也算存在");
+        Set<String> planted = new LinkedHashSet<String>();
+        planted.add("bug_thisTestDoesNotExistRhyme");
+        planted.addAll(cited);
+        assertTrue(planted.size() > cited.size(), "集合相加没变多，说明 truth/cited 的关系不对");
+    }
+
+    @Test
+    @DisplayName("README 里每一处「报告 …」引用都落得下去：缺陷编号、§ 小节、第 N 行/条")
+    void everyReportReferenceInReadmeResolvesInTrackedReport() throws IOException {
+        String p = prose(readme());
+        String rp = report();
+
+        Set<String> defectIds = new LinkedHashSet<String>();
+        Matcher dm = REPORT_DEFECT_IDS.matcher(rp);
+        while (dm.find()) {
+            defectIds.add(dm.group(1));
+        }
+        assertTrue(defectIds.size() >= 30, "报告里只数到 " + defectIds.size() + " 个 H/N 编号，扫描恐有漏");
+
+        Map<String, Integer> sectionSize = new HashMap<String, Integer>();
+        Matcher hm = REPORT_SECTION_HEAD.matcher(rp);
+        while (hm.find()) {
+            sectionSize.put(hm.group(1), 0);
+        }
+        assertTrue(sectionSize.containsKey("12") && sectionSize.containsKey("11.5"),
+                "报告的小节标题形状和这把尺的预期不一样，得先改尺");
+        for (String top : new ArrayList<String>(sectionSize.keySet())) {
+            if (top.indexOf('.') >= 0) {
+                continue;
+            }
+            String chunk = reportSection(rp, top);
+            if (chunk == null) {
+                continue;
+            }
+            int rows = itemCountIn(chunk, true);
+            int items = itemCountIn(chunk, false);
+            sectionSize.put(top, Math.max(rows, items));
+        }
+
+        int checked = 0;
+        List<String> bad = new ArrayList<String>();
+        Matcher lm = REF_LINE.matcher(p);
+        while (lm.find()) {
+            String line = lm.group();
+            if (!line.contains("§") && !REPORT_DEFECT_ID.matcher(line).find()
+                    && !ITEM_REF.matcher(line).find()) {
+                continue;
+            }
+            checked++;
+            for (String b : unresolvedRefs(line, testMethodNames(), defectIds, sectionSize)) {
+                bad.add("「" + line.trim().substring(0, Math.min(70, line.trim().length())) + "」-> " + b);
+            }
+        }
+        assertTrue(checked >= 8, "只核对了 " + checked + " 行指向报告的引用，抽取器大概失效了");
+        assertEquals(Collections.emptyList(), bad, "README 指向报告的引用落不下去");
+
+        // 猎物：三种越界各喂一条，同一把尺必须逐条说不
+        List<String> prey = unresolvedRefs("报告 H99 §99.9 与 §7 第 40 行、§8 第 90 条",
+                testMethodNames(), defectIds, sectionSize);
+        assertEquals(4, prey.size(), "四支猎物应当逐条被说出，实得 " + prey
+                + "（少一支通常不是尺钝了，而是猎物的字面量被抄进了参照集 —— 报告全文或 src 里的字符串）");
+        assertTrue(prey.get(0).contains("H99") && prey.get(1).contains("99.9"), "猎物的红法不对：" + prey);
+        // 反向对照：真在盘上的引用不许被判
+        assertTrue(unresolvedRefs("报告 §7 第 4/16 行", testMethodNames(), defectIds, sectionSize).isEmpty(),
+                "真引用被误判，上面的放行没有意义");
+
+        // 第五支猎物：跨 `§` 错绑。`§13.1 末、§8 第 N 条` 里的 N 归 §8，不许算到 §13 头上 ——
+        // 数字取自盘上两节各自的条数，所以这组猎物不会因为我把报告写长而 rot。
+        int size13 = sectionSize.get("13");
+        int size8 = sectionSize.get("8");
+        assertTrue(size8 > size13,
+                "这组猎物依赖「§8 比 §13 数得多」这一盘上事实，现在 size13=" + size13 + " / size8=" + size8
+                        + "，得重挑两节");
+        String over13 = String.valueOf(size13 + 1);
+        assertTrue(unresolvedRefs("报告 §13.1 末、§8 第 " + over13 + " 条",
+                        testMethodNames(), defectIds, sectionSize).isEmpty(),
+                "把 §8 的条目数错绑到了 §13（绑定窗口跨过了 `§`），该放行却没放行");
+        List<String> misbind = unresolvedRefs("报告 §13 第 " + over13 + " 条",
+                testMethodNames(), defectIds, sectionSize);
+        assertEquals(1, misbind.size(),
+                "同一个数字直接绑 §13 时必须说不，否则上面那条放行是空的 ==> " + misbind);
+        assertTrue(misbind.get(0).contains("§13") && misbind.get(0).contains(over13),
+                "错绑猎物的红法不对：" + misbind);
+    }
+
+    // -------------------------------------------------------- 行号尺（形状 A + B）
+
+    /** 形状 A：`名字`（:行号） —— 那个行号必须正好是声明行。 */
+    private static final Pattern LINE_CITE =
+            Pattern.compile("`([A-Za-z_][A-Za-z0-9_]*)`（:(\\d{1,4})）");
+
+    /** 形状 B：`名字:行号` —— 红法行、断言行用的是这一形，行号要落在那个方法的区间里。 */
+    private static final Pattern BODY_CITE =
+            Pattern.compile("`([a-z][A-Za-z0-9_]*):(\\d{1,4})`");
+
+    /** 声明行：只认 {@code void name(} 一种形状，与 {@link #testMethodNames()} 同一把尺。 */
+    private static final Pattern VOID_DECL = Pattern.compile("\\bvoid\\s+([A-Za-z0-9_]+)\\s*\\(");
+
+    /** 一个 void 声明占的区间：声明行 → 同文件里下一个声明行之前（最后一个到文件末）。 */
+    private static final class Decl {
+        final String rel;
+        final int start;
+        int end;
+
+        Decl(String rel, int start) {
+            this.rel = rel;
+            this.start = start;
+            this.end = start;
+        }
+    }
+
+    private static Map<String, List<Decl>> voidDeclarations() throws IOException {
+        Map<String, List<Decl>> out = new LinkedHashMap<String, List<Decl>>();
+        File root = repoRoot();
+        String base = root.getAbsolutePath().replace('\\', '/') + "/";
+        List<String> files = new ArrayList<String>();
+        collectTestSources(root, files);
+        Collections.sort(files);
+        int decls = 0;
+        for (String path : files) {
+            String rel = path.replace('\\', '/');
+            if (rel.startsWith(base)) {
+                rel = rel.substring(base.length());
+            }
+            List<String> lines = linesOf(text(new File(path)));
+            List<Decl> mine = new ArrayList<Decl>();
+            List<String> names = new ArrayList<String>();
+            for (int i = 0; i < lines.size(); i++) {
+                Matcher m = VOID_DECL.matcher(lines.get(i));
+                if (!m.find()) {
+                    continue;
+                }
+                Decl d = new Decl(rel, i + 1);
+                mine.add(d);
+                names.add(m.group(1));
+                decls++;
+            }
+            for (int i = 0; i < mine.size(); i++) {
+                mine.get(i).end = i + 1 < mine.size() ? mine.get(i + 1).start - 1 : lines.size();
+                List<Decl> hit = out.get(names.get(i));
+                if (hit == null) {
+                    hit = new ArrayList<Decl>();
+                    out.put(names.get(i), hit);
+                }
+                hit.add(mine.get(i));
+            }
+        }
+        assertTrue(decls > 500, "全仓只数到 " + decls + " 个 void 声明行，遍历肯定漏了");
+        assertTrue(out.containsKey("bugNamesCitedInReadmeExistAsTestMethods"),
+                "阳性对照失效：本文件里的方法没进声明表，行号尺等于没跑");
+        return out;
+    }
+
+    private static String describe(List<Decl> where) {
+        StringBuilder sb = new StringBuilder();
+        for (Decl d : where) {
+            if (sb.length() > 0) {
+                sb.append(" / ");
+            }
+            sb.append(d.rel).append(':').append(d.start).append('-').append(d.end);
+        }
+        return sb.toString();
+    }
+
+    /** 两种形状一起核：A 必须正中声明行，B 必须落在方法体区间内。 */
+    private static List<String> unresolvedLineCites(String doc, Map<String, List<Decl>> decl) {
+        List<String> bad = new ArrayList<String>();
+        Matcher a = LINE_CITE.matcher(doc);
+        while (a.find()) {
+            String name = a.group(1);
+            String line = a.group(2);
+            List<Decl> where = decl.get(name);
+            if (where == null) {
+                bad.add("`" + name + "`（:" + line + "）—— 全仓 src/test 里没有 `void " + name + "(` 的声明行");
+                continue;
+            }
+            boolean hit = false;
+            for (Decl d : where) {
+                if (String.valueOf(d.start).equals(line)) {
+                    hit = true;
+                    break;
+                }
+            }
+            if (!hit) {
+                bad.add("`" + name + "`（:" + line + "）不是声明行，真声明在 " + describe(where));
+            }
+        }
+        Matcher b = BODY_CITE.matcher(doc);
+        while (b.find()) {
+            String name = b.group(1);
+            int line = Integer.parseInt(b.group(2));
+            List<Decl> where = decl.get(name);
+            if (where == null) {
+                continue;
+            }
+            boolean hit = false;
+            for (Decl d : where) {
+                if (line >= d.start && line <= d.end) {
+                    hit = true;
+                    break;
+                }
+            }
+            if (!hit) {
+                bad.add("`" + name + ":" + line + "` 不在那个方法的区间里，现在的区间是 " + describe(where));
+            }
+        }
+        return bad;
+    }
+
+    @Test
+    @DisplayName("文档点名的「方法名（:行号）」与「方法名:行号」必须落在盘上那个方法的行区间里")
+    void lineCitationsInDocsPointAtTheirOwnDeclarations() throws IOException {
+        Map<String, List<Decl>> decl = voidDeclarations();
+        String docs = report() + "\n" + readme();
+
+        int nA = findAll(LINE_CITE, docs).size();
+        int nB = 0;
+        List<String> uncheckedB = new ArrayList<String>();
+        Matcher bm = BODY_CITE.matcher(docs);
+        while (bm.find()) {
+            if (decl.containsKey(bm.group(1))) {
+                nB++;
+            } else {
+                uncheckedB.add(bm.group(1));
+            }
+        }
+        assertTrue(nA >= 3, "两份文档里只数到 " + nA + " 处「`名字`（:行号）」，抽取器大概失效了");
+        assertTrue(nB >= 3, "落在 void 方法上的「`名字:行号`」只有 " + nB + " 处，抽取器大概失效了");
+        assertEquals(Collections.emptyList(), unresolvedLineCites(docs, decl),
+                "文档点名的行号落不下去 —— 加一行删一行就会把它们全挪走，所以只能核对不能记住");
+
+        // 猎物 1（形状 A）：真名字 + 行号 ±1 必须说不；真行号必须先放行，否则上面那一句是空口白话
+        String real = "bugNamesCitedInReadmeExistAsTestMethods";
+        List<Decl> at = decl.get(real);
+        assertTrue(at != null, "对照用的名字不在声明表里");
+        assertEquals(1, at.size(), "对照用的名字不唯一：" + describe(at));
+        final int truth = at.get(0).start;
+        assertTrue(unresolvedLineCites("`" + real + "`（:" + truth + "）", decl).isEmpty(),
+                "真引用被误判");
+        List<String> off1 = unresolvedLineCites("`" + real + "`（:" + (truth + 1) + "）", decl);
+        assertEquals(1, off1.size(), "行号 ±1 没被说出来：" + off1);
+        assertTrue(off1.get(0).contains(String.valueOf(truth)), "红消息没说出真行号在哪：" + off1);
+        // 猎物 2（形状 A）：名字压根不存在（拼出来喂，字面量不许进任何一份文档）
+        assertEquals(1, unresolvedLineCites("`voidMethodNotOnThis" + "Disk`（:12）", decl).size(),
+                "不存在的名字没被说出来");
+        // 猎物 3（形状 B）：区间中间一行必须放行，区间外一行必须说不
+        int mid = (truth + at.get(0).end) / 2;
+        assertTrue(mid > truth && mid < at.get(0).end, "对照用的方法体太窄，量不出区间：" + describe(at));
+        assertTrue(unresolvedLineCites("`" + real + ":" + mid + "`", decl).isEmpty(),
+                "方法体内的一行被误判，形状 B 的放行没有意义");
+        List<String> off3 = unresolvedLineCites("`" + real + ":" + (at.get(0).end + 1) + "`", decl);
+        assertEquals(1, off3.size(), "区间外的一行没被说出来：" + off3);
+        // 覆盖边界要说清：形状 B 只核点得到 void 声明的名字，类名/`src/main` 里的方法现在没人核
+        assertTrue(uncheckedB.size() > 0,
+                "这一轮报告里竟没有一处形状 B 指向非 void 方法，那条覆盖边界无据可写");
+    }
+
+    // ------------------------------------------- 报告转述的 README 计数（第六把）
+
+    /** 报告 §13.1 附的那行复算命令的期望输出，五个数一处不落。 */
+    private static final Pattern CITE_COMPACT = Pattern.compile(
+            "bug=([0-9]+) camel=([0-9]+) reflines=([0-9]+) ids=([0-9]+) secs=([0-9]+)");
+
+    /** 报告 §13.1 开头那句散文里的同一批数：只按出现顺序取数，不关心中间怎么加粗、怎么打反引号。 */
+    private static final Pattern CITE_PROSE = Pattern.compile(
+            "这几批：(\\d+)[^0-9]*(\\d+)[^0-9]*(\\d+)[^0-9]*(\\d+)[^0-9]*(\\d+)[^0-9]*个驼峰标识符");
+
+    private static final String[] COMPACT_KEYS = {"bug", "camel", "reflines", "ids", "secs"};
+    private static final String[] PROSE_KEYS = {"bug", "reflines", "ids", "secs", "camel"};
+
+    /**
+     * README 正文里那五批指针的现场计数。口径与报告附的那条复算命令同源：
+     * 全部先剥 ``` 围栏，"引用行"指含"报告"且带 `§` 或缺陷编号的行，各集合取唯一值。
+     */
+    private static Map<String, Integer> citeCounts(String readmeProse) {
+        Map<String, Integer> out = new LinkedHashMap<String, Integer>();
+        Set<String> bug = new LinkedHashSet<String>();
+        Matcher m = BUG_CITED.matcher(readmeProse);
+        while (m.find()) {
+            bug.add(m.group(1));
+        }
+        Set<String> camel = new LinkedHashSet<String>();
+        m = PROSE_CAMEL.matcher(readmeProse);
+        while (m.find()) {
+            camel.add(m.group(1));
+        }
+        Set<String> ids = new LinkedHashSet<String>();
+        Set<String> secs = new LinkedHashSet<String>();
+        int refLines = 0;
+        for (String line : readmeProse.split("\n")) {
+            if (!line.contains("报告")) {
+                continue;
+            }
+            Matcher dm = REPORT_DEFECT_ID.matcher(line);
+            Matcher sm = SEC_REF.matcher(line);
+            boolean hasId = dm.find();
+            boolean hasSec = sm.find();
+            if (!hasId && !hasSec) {
+                continue;
+            }
+            refLines++;
+            if (hasId) {
+                do {
+                    ids.add(dm.group(1));
+                } while (dm.find());
+            }
+            if (hasSec) {
+                do {
+                    secs.add(sm.group(1));
+                } while (sm.find());
+            }
+        }
+        out.put("bug", bug.size());
+        out.put("camel", camel.size());
+        out.put("reflines", refLines);
+        out.put("ids", ids.size());
+        out.put("secs", secs.size());
+        return out;
+    }
+
+    /** 按同一种形状把一组数拼成文本 —— 猎物就是这么造的，字面量因此不落进任何一份文档。 */
+    private static String compactString(Map<String, Integer> v) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < COMPACT_KEYS.length; i++) {
+            if (i > 0) {
+                sb.append(' ');
+            }
+            sb.append(COMPACT_KEYS[i]).append('=').append(v.get(COMPACT_KEYS[i]));
+        }
+        return sb.toString();
+    }
+
+    private static String proseString(Map<String, Integer> v) {
+        return "这几批：" + v.get("bug") + " 个 `bug_*` 用例名、" + v.get("reflines")
+                + " 行含\"报告\"的引用（" + v.get("ids") + " 个 H/N 缺陷编号 + **" + v.get("secs")
+                + "** 个 `§x.y` 小节号 + 若干\"第 N 行/条\"）、" + v.get("camel") + " 个驼峰标识符";
+    }
+
+    /** 文档里写着的数与现场数出来的数逐一对账，返回对不上的条目。 */
+    private static List<String> staleCiteCounts(String doc, Map<String, Integer> truth) {
+        List<String> bad = new ArrayList<String>();
+        Matcher cm = CITE_COMPACT.matcher(doc);
+        while (cm.find()) {
+            for (int i = 0; i < COMPACT_KEYS.length; i++) {
+                int written = Integer.parseInt(cm.group(i + 1));
+                int measured = truth.get(COMPACT_KEYS[i]).intValue();
+                if (written != measured) {
+                    bad.add("复算串把 " + COMPACT_KEYS[i] + " 写成 " + written + "，README 现场实测是 " + measured);
+                }
+            }
+        }
+        Matcher pm = CITE_PROSE.matcher(doc);
+        while (pm.find()) {
+            for (int i = 0; i < PROSE_KEYS.length; i++) {
+                int written = Integer.parseInt(pm.group(i + 1));
+                int measured = truth.get(PROSE_KEYS[i]).intValue();
+                if (written != measured) {
+                    bad.add("「这几批」那句把 " + PROSE_KEYS[i] + " 写成 " + written
+                            + "，README 现场实测是 " + measured);
+                }
+            }
+        }
+        return bad;
+    }
+
+    @Test
+    @DisplayName("报告转述的 README 指针计数必须等于现场重数的数 —— 转述过的数没有尺就会 rot，这次它已经 rot 过一回")
+    void countsQuotedInReportMatchRecompute() throws IOException {
+        Map<String, Integer> truth = citeCounts(prose(readme()));
+        for (String k : COMPACT_KEYS) {
+            assertTrue(truth.get(k).intValue() > 0, "现场数出来的 " + k + " 是 0，口径或抽取器坏了");
+        }
+        String rp = report();
+        int nCompact = findAll(CITE_COMPACT, rp).size();
+        int nProse = findAll(CITE_PROSE, rp).size();
+        assertTrue(nCompact >= 1, "报告里一处复算串都没数到：这把尺没有对象，通过不算证据");
+        assertEquals(1, nProse, "报告里「这几批：…」那句数到 " + nProse + " 处，两句就不知以哪句为准");
+
+        // 先读盘上的真文档 —— 少了这一句，整条用例只是在验尺自己拼的字符串
+        assertEquals(Collections.emptyList(), staleCiteCounts(rp, truth),
+                "报告转述的 README 计数与现场重数的对不上（README 一改这类数就漂，而除了这把尺没人会去读它）");
+
+        // 正例：尺自己按同口径拼出来的串必须干净（否则上面那些红可能只是尺钝）
+        assertTrue(staleCiteCounts(compactString(truth), truth).isEmpty(), "真值串被误判");
+        assertTrue(staleCiteCounts(proseString(truth), truth).isEmpty(), "真值散文句被误判");
+
+        // 猎物：在真值串上各动一刀（五个位置），每一处都必须被单独说出、且点名是哪一批
+        for (String key : COMPACT_KEYS) {
+            Map<String, Integer> bumped = new LinkedHashMap<String, Integer>(truth);
+            bumped.put(key, bumped.get(key).intValue() + 1);
+            List<String> off = staleCiteCounts(compactString(bumped), truth);
+            assertEquals(1, off.size(), "把 " + key + " 加 1 没被单独说出来：" + off);
+            assertTrue(off.get(0).contains(key), "红消息没点名是哪一批：" + off);
+        }
+        Map<String, Integer> proseBumped = new LinkedHashMap<String, Integer>(truth);
+        proseBumped.put("secs", proseBumped.get("secs").intValue() + 1);
+        List<String> poff = staleCiteCounts(proseString(proseBumped), truth);
+        assertEquals(1, poff.size(), "散文句里把 secs 加 1 没被单独说出来：" + poff);
+        assertTrue(poff.get(0).contains("secs") && poff.get(0).contains("这几批"),
+                "散文句猎物的红法不对：" + poff);
     }
 }
