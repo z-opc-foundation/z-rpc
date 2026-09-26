@@ -1,13 +1,20 @@
 # Z-RPC
 
-> **高性能 Java RPC 框架** — 参考 Apache Dubbo / SOFA-RPC / gRPC / brpc 设计
-> 微内核 + SPI 插件化 + 5 种序列化 + 6 种负载均衡 + 10 个内置 Filter + 注解驱动
-> Java 8 + Netty 4 + Hessian2/Kryo/Protobuf
+> **Java 8 + Netty 4 的 RPC 框架** — 微内核 + SPI 插件化，参考 Apache Dubbo / SOFA-RPC / gRPC / brpc 设计
+> Java 8 编译级别（`maven.compiler.source/target=8`）· Spring Boot 2.7.12 · Netty 4 · MIT License
 
 [![Maven Central](https://img.shields.io/badge/Maven%20Central-1.0.2-blue?logo=apache-maven)](https://central.sonatype.com/search?q=g:io.github.yuku123+a:z-rpc*)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-8%2B-orange)](https://openjdk.org)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-2.7.x-6DB33F)](https://spring.io)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-2.7.12-6DB33F)](https://spring.io)
+
+---
+
+## 先说清楚这份文档的口径
+
+本 README 里**每一句"支持 / 默认 / 自动"都在 `_doc/002_测试报告.md` 里有对应的实测条目**。上一版 README 的 13 段 Java 示例里有 9 段编译不过（`RpcServerConfig`、`InMemoryRegistry`、`MockFilter`、`client.createGenericProxy(..)` 这些名字在仓库里根本不存在），能力表里的"6 种集群容错 / 5 种负载均衡 / 10 个内置 Filter / z-config + ZK 注册中心 / dubbo + http 协议 / Prometheus 上报"也都没有代码兑现，因此本版按实测重写，并把**没有兑现的**功能从能力表移到 [还没做](#还没做这些是实测结论不是计划) 一节，每条带上报告里的缺陷编号。
+
+已发布到 Maven Central 的是 **1.0.2**（`groupId: io.github.yuku123`）。要提醒一句：**已发布的 1.0.2 是 2026-09-13 的字节**，此后本仓 `src/main` 落的 37 处修复**一个都没进过任何已发布构件**（报告 §9.4 / N42）。要用修复后的行为，得从本仓构建。
 
 ---
 
@@ -15,7 +22,7 @@
 
 ### 方式一：注解驱动（Spring Boot 应用，最常见）
 
-#### 服务端（实现类）
+`spring-boot-starter` 只带 `spring-context`，**不含 Web**；下面的 `@RestController` 示例需要自己引入 `spring-boot-starter-web`。
 
 ```xml
 <dependency>
@@ -25,8 +32,12 @@
 </dependency>
 ```
 
+#### 服务端（提供方）
+
+`@ZRpcService` 本身已元标注 `@Component`，但**光打它还不够**：注入器由 `@EnableZRpc` 装配，所以启动类上要有 `@EnableZRpc`（报告 §7 第 4/16 行，两条都是先踩坑再补的）。
+
 ```java
-// 1. 定义接口
+// 1. 定义接口（提供方与消费方共享）
 public interface UserService {
     User findById(long id);
     List<User> findByIds(List<Long> ids);
@@ -38,17 +49,18 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public User findById(long id) {
-        return db.findById(id);
+        return new User();
     }
 
     @Override
     public List<User> findByIds(List<Long> ids) {
-        return db.findByIds(ids);
+        return new ArrayList<User>();
     }
 }
 
-// 3. 启动类
+// 3. 启动类：@EnableZRpc 负责把导出器与注入器装进容器
 @SpringBootApplication
+@EnableZRpc(scanBasePackages = "com.example.user")
 public class UserProviderApp {
     public static void main(String[] args) {
         SpringApplication.run(UserProviderApp.class, args);
@@ -56,694 +68,7 @@ public class UserProviderApp {
 }
 ```
 
-`application.yml`:
-
-```yaml
-z:
-  rpc:
-    enabled: true
-    protocol: zrpc                 # zrpc / dubbo / http
-    port: 9888
-    registry:
-      type: z-config               # z-config / in-memory / zk
-      address: localhost:8848
-    serialize: hessian2            # java / json / hessian2 / kryo / protobuf
-    cluster: failover              # failover / failfast / failsafe / failback / broadcast
-    loadbalance: random            # random / roundrobin / leastactive / smoothweightedrr / consistenthash
-```
-
-#### 客户端（消费方）
-
-```java
-@RestController
-public class UserController {
-
-    @ZRpcReference(interfaceClass = UserService.class, version = "1.0.0", timeout = 3000)
-    private UserService userService;     // 远程代理, 像本地 bean 一样用
-
-    @GetMapping("/users/{id}")
-    public User get(@PathVariable long id) {
-        return userService.findById(id); // 自动走 RPC
-    }
-}
-```
-
-### 方式二：API 调用（不依赖 Spring）
-
-```xml
-<dependency>
-    <groupId>io.github.yuku123</groupId>
-    <artifactId>z-rpc-core</artifactId>
-    <version>1.0.2</version>
-</dependency>
-```
-
-```java
-// 服务端: 启动 RpcServer
-RpcServerConfig serverConfig = RpcServerConfig.builder()
-    .port(9888)
-    .registry(new InMemoryRegistry())
-    .build();
-RpcServer server = new RpcServer(serverConfig);
-server.register(UserService.class, new UserServiceImpl());
-server.start();
-
-// 客户端: 创建代理
-RpcClient client = new RpcClient(RpcClientConfig.builder()
-    .registry(new InMemoryRegistry())
-    .build());
-client.start();
-UserService userService = client.createProxy(UserService.class);
-User u = userService.findById(1001);  // 自动走 RPC
-```
-
----
-
-## 📦 已发布到 Maven Central 的所有模块
-
-> groupId: `io.github.yuku123` · version: **1.0.2**
-
-| 模块 | 说明 | 何时该引入 |
-|---|---|---|
-| `z-rpc-common` | 协议常量 / 异常 / DTO | 客户端/服务端共享 |
-| `z-rpc-spi` | SPI 扩展点（@SPI 注解 + ExtensionLoader） | 自定义扩展 |
-| `z-rpc-api` | 公开 API（@ZRpcService / @ZRpcReference） | 业务方 |
-| `z-rpc-serialize` | 5 种序列化（Java / JSON / Hessian2 / Kryo / Protobuf） | 自定义序列化 |
-| `z-rpc-protocol` | 私有 RPC 协议（编解码 + 消息头） | 自定义协议 |
-| `z-rpc-remoting` | Netty 4 网络层（客户端 + 服务端） | 自定义网络 |
-| `z-rpc-registry` | 服务发现（z-config / In-Memory / ZK Naming） | 自定义注册中心 |
-| `z-rpc-cluster` | 6 种集群容错 + 5 种负载均衡 | 自定义路由 |
-| `z-rpc-filter` | 10 个内置 Filter（trace / monitor / context / mock / token） | 自定义 Filter |
-| `z-rpc-mock` | 客户端 Mock 支持（@ZRpcReference(mock = "true")） | 测试 |
-| `z-rpc-metrics` | QPS / P99 / 错误率 / 活跃连接指标 | 监控 |
-| `z-rpc-async` | 异步调用 + Callback + CompletableFuture | 异步编程 |
-| `z-rpc-core` | RpcServer + RpcClient + 框架核心 | 直接 API 调用 |
-| `z-rpc-spring-boot-starter` | Spring Boot 自动装配 + 注解驱动 | Spring Boot 应用 |
-
----
-
-## ✨ 核心能力
-
-### 微内核 + SPI 插件化
-- ✅ 所有核心能力（协议 / 序列化 / 负载均衡 / 集群容错 / 路由 / 过滤器）均通过 `@SPI` 扩展点实现
-- ✅ **运行时切换实现**（基于 `META-INF/zrpc/` 配置 + JDK ServiceLoader）
-- ✅ **第三方扩展友好**（业务方可以无侵入替换任何模块）
-
-### 序列化
-- ✅ **Java 原生**（默认，零依赖）
-- ✅ **JSON**（Jackson，可读）
-- ✅ **Hessian2**（默认生产推荐，跨语言 + 高性能）
-- ✅ **Kryo**（最快，Java 专属）
-- ✅ **Protobuf v3**（跨语言 + Schema 强约束）
-
-### 协议
-- ✅ **zrpc**（私有紧凑二进制协议）
-- ✅ **dubbo**（兼容 Dubbo 协议，老系统迁移）
-- ✅ **http**（REST/HTTP，便于调试）
-
-### 集群容错（6 种）
-- ✅ **Failover**（默认 — 失败自动切换其他实例，重试 N 次）
-- ✅ **Failfast**（失败立即报错，不重试）
-- ✅ **Failsafe**（失败吞掉异常，常用于审计日志）
-- ✅ **Failback**（失败后台记录，定时重发）
-- ✅ **Broadcast**（广播所有实例，任一失败就报错）
-- ✅ **Available**（找到第一个可用实例）
-
-### 负载均衡（5 种）
-- ✅ **Random**（默认）
-- ✅ **RoundRobin**
-- ✅ **LeastActive**（最不活跃优先）
-- ✅ **SmoothWeightedRR**（平滑加权轮询）
-- ✅ **ConsistentHash**（一致性 Hash，同一参数路由到同一节点）
-
-### 内置 Filter（10 个）
-- ✅ **TraceFilter**（链路追踪，自动注入 traceId）
-- ✅ **MonitorFilter**（QPS / 延迟 / 错误率统计）
-- ✅ **ContextFilter**（透传请求上下文，UserId / TenantId）
-- ✅ **MockFilter**（`@ZRpcReference(mock = "true")` 走 Mock）
-- ✅ **TokenFilter**（Token 透传，避免每跳重写）
-- ✅ **TimeoutFilter**（客户端超时兜底）
-- ✅ **ExceptionFilter**（自定义异常码 / 错误信息）
-- ✅ **LoggingFilter**（请求 + 响应日志）
-- ✅ **MetricsFilter**（Prometheus 上报）
-- ✅ **LimitFilter**（服务端限流）
-
-### 服务治理
-- ✅ **注册中心**：z-config / ZK / In-Memory（可扩展）
-- ✅ **健康检查**：心跳 + 离线剔除
-- ✅ **连接复用**：Netty 长连接池
-- ✅ **灰度发布**：按 version / group 路由
-- ✅ **多协议端口**：单服务可同时监听 zrpc + http
-
-### 可观测性
-- ✅ **完整指标**：QPS / P50-P90-P99 / 错误率 / 活跃连接 / 队列长度
-- ✅ **链路追踪**（自动注入 traceId，可对接 SkyWalking / Jaeger）
-- ✅ **Prometheus 集成**（`z_rpc_*` metrics）
-- ✅ **可视化控制台**（z-rpc-admin，React + AntD）
-
----
-
-## ⚙️ 实用 Case（生产场景）
-
-### Case 1: 注解驱动的标准调用
-
-```java
-// 服务端
-@ZRpcService(interfaceClass = OrderService.class, version = "1.0.0", group = "order")
-public class OrderServiceImpl implements OrderService { ... }
-
-// 客户端
-@ZRpcReference(interfaceClass = OrderService.class, version = "1.0.0", group = "order",
-               timeout = 3000, retries = 2, loadbalance = "leastactive")
-private OrderService orderService;
-```
-
-### Case 2: 异步调用（CompletableFuture）
-
-```java
-// 定义异步接口
-@Async
-public interface OrderService {
-    CompletableFuture<Order> findByIdAsync(long id);
-}
-
-// 客户端
-@ZRpcReference(async = true)
-private OrderService orderService;
-
-// 调用
-CompletableFuture<User>  userFuture  = userService.findByIdAsync(1001);
-CompletableFuture<Order> orderFuture = orderService.findByIdAsync(2001);
-CompletableFuture.allOf(userFuture, orderFuture).join();   // 并发等待
-```
-
-### Case 3: 泛化调用（无接口依赖）
-
-```java
-// 调用方没有 OrderService.class, 通过 interfaceName 调用
-GenericService generic = client.createGenericProxy("com.example.OrderService", "1.0.0");
-Object order = generic.$invoke("findById", new String[]{"java.lang.Long"}, new Object[]{1001L});
-```
-
-### Case 4: 客户端 Mock（测试场景）
-
-```java
-// 在 application-test.yml
-z:
-  rpc:
-    mock-default: true    # 所有 @ZRpcReference 走 Mock, 由 z-rpc-mock 返回 null
-
-// 或者单个 Bean
-@ZRpcReference(mock = "true", mockReturn = "{id: 1001, name: 'MockUser'}")
-private UserService userService;
-```
-
-### Case 5: 灰度发布（按 group 路由）
-
-```yaml
-# 服务端: 旧版 group=order, 新版 group=order_v2
-z:
-  rpc:
-    group: order_v2
-
-# 客户端: 90% 流量走 order_v2, 10% 走 order
-z:
-  rpc:
-    weight:
-      order_v2: 90
-      order: 10
-```
-
-### Case 6: 自定义 Filter（业务 traceId）
-
-```java
-@Spi(scope = Scope.SINGLETON)
-public class BusinessTraceFilter implements Filter {
-
-    @Override
-    public Result invoke(Invoker<?> invoker, Invocation invocation) {
-        String traceId = MDC.get("traceId");
-        if (traceId != null) {
-            RpcContext.getContext().setAttachment("X-Biz-Trace-Id", traceId);
-        }
-        return invoker.invoke(invocation);
-    }
-}
-
-// 资源文件: META-INF/zrpc/com.zifang.z.rpc.filter.Filter
-// 内容: businessTrace=com.example.filter.BusinessTraceFilter
-```
-
-### Case 7: 通过 Rest 调用（dubbo 兼容）
-
-```yaml
-z:
-  rpc:
-    protocol: http
-    rest-port: 9889
-```
-
-```bash
-# 直接 curl 调用
-curl -X POST http://localhost:9889/com.example.UserService/findById -d '1001'
-```
-
----
-
-## 🏗️ 项目结构
-
-```
-z-rpc/
-├── pom.xml                          # 自给自足 parent
-├── z-rpc-common/                    # 协议常量 / 异常
-├── z-rpc-spi/                       # SPI 扩展点
-├── z-rpc-api/                       # @ZRpcService / @ZRpcReference
-├── z-rpc-serialize/                 # 5 种序列化
-├── z-rpc-protocol/                  # zrpc + dubbo + http 协议
-├── z-rpc-remoting/                  # Netty 4 网络层
-├── z-rpc-registry/                  # 注册中心（z-config / ZK / InMemory）
-├── z-rpc-cluster/                   # 6 集群容错 + 5 负载均衡
-├── z-rpc-filter/                    # 10 个内置 Filter
-├── z-rpc-mock/                      # Mock 支持
-├── z-rpc-metrics/                   # 监控指标
-├── z-rpc-async/                     # 异步调用
-├── z-rpc-core/                      # RpcServer + RpcClient
-├── z-rpc-spring-boot-starter/       # Spring Boot 自动装配
-├── z-rpc-admin/                     # React + AntD 可视化控制台
-└── README.md
-```
-
----
-
-## 🔧 高级配置
-
-### 完整 application.yml
-
-```yaml
-z:
-  rpc:
-    enabled: true
-    application: order-service       # 服务名
-    protocol: zrpc
-    port: 9888
-
-    serialize: hessian2              # java / json / hessian2 / kryo / protobuf
-    cluster: failover
-    loadbalance: random
-    retries: 3
-    timeout: 3000
-
-    registry:
-      type: z-config
-      address: z-config://localhost:8848
-      group: default
-      namespace: dev
-      username: ""
-      password: ""
-
-    server:
-      threads:
-        boss: 1
-        worker: 0                    # 0 = CPU * 2
-        business: 200
-      channel:
-        max-content-length: 10485760  # 10MB
-        connect-timeout-ms: 3000
-        idle-timeout-seconds: 90
-
-    client:
-      connect-timeout-ms: 3000
-      reconnect-interval-ms: 2000
-      max-retries: 3
-      heartbeat-interval-seconds: 30
-
-    filter:
-      enabled:                       # 启用的 Filter 列表
-        - trace
-        - monitor
-        - context
-        - logging
-
-    metrics:
-      enabled: true
-      prometheus:
-        enabled: true
-        endpoint: /actuator/prometheus
-```
-
-### 自定义 SPI 扩展（注册中心 / 序列化 / Filter）
-
-```java
-// 1. 实现接口
-public class MyRegistry implements Registry {
-    @Override
-    public void register(URL url) { ... }
-    @Override
-    public List<URL> discover(String service) { ... }
-}
-
-// 2. 加 @SPI 注解
-@SPI("my-registry")
-public class MyRegistry implements Registry { ... }
-
-// 3. 资源文件: META-INF/zrpc/com.zifang.z.rpc.registry.Registry
-// 内容: my-registry=com.example.MyRegistry
-
-// 4. application.yml
-// z.rpc.registry.type: my-registry
-```
-
----
-
-## 🐳 Docker / k3s 部署
-
-### Dockerfile
-
-```dockerfile
-FROM eclipse-temurin:8-jdk AS build
-COPY . /src
-RUN cd /src && mvn -B -DskipTests -Pcentral package
-
-FROM eclipse-temurin:8-jre
-COPY --from=build /src/z-rpc-examples/target/*.jar /app.jar
-EXPOSE 9888 9889
-ENTRYPOINT ["java", "-Xms512m", "-Xmx2g", "-jar", "/app.jar"]
-```
-
-### k3s Deployment
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: z-rpc-provider
-  namespace: z-rpc
-spec:
-  replicas: 3
-  selector:
-    matchLabels: {app: z-rpc-provider}
-  template:
-    metadata:
-      labels: {app: z-rpc-provider, version: 1.0.0}
-    spec:
-      containers:
-        - name: z-rpc
-          image: ghcr.io/z-opc-foundation/z-rpc:1.0.2
-          ports: [{containerPort: 9888}]
-          env:
-            - name: Z_RPC_REGISTRY_ADDRESS
-              value: "z-config://z-config:8848"
-```
-
----
-
-## 📊 性能基准（4 核 8G，Netty 4，hessian2 序列化）
-
-| 场景 | QPS | P99 |
-|---|---|---|
-| 单连接同步调用 | 24,000 | 1.2ms |
-| 长连接池 100 并发 | 78,000 | 4.8ms |
-| 异步 CompletableFuture | 145,000 | 2.5ms |
-| Hessian2 序列化 1KB | 95,000 | 3.2ms |
-| Kryo 序列化 1KB | 130,000 | 2.1ms |
-
----
-
-## 🧪 完整测试覆盖
-
-```
-单元测试:       312 PASS
-集成测试:       78 PASS  (含 Netty live + z-config 注册中心)
-Spring Boot:   14 PASS  (context load + AutoConfiguration)
-序列化兼容性:    31 PASS  (5 种序列化互转)
-Filter 链:      22 PASS  (10 个内置 Filter)
-集群容错:        18 PASS (6 种策略)
-负载均衡:        15 PASS (5 种策略)
-```
-
----
-
-## 📚 详细文档
-
-- [完整架构](docs/ARCHITECTURE.md)
-- [SPI 扩展开发指南](docs/SPI_EXTENSION.md)
-- [序列化选型](docs/SERIALIZE.md)
-- [集群容错详解](docs/CLUSTER.md)
-- [Filter 开发](docs/FILTER.md)
-- [泛化调用](docs/GENERIC.md)
-- [Mock 测试](docs/MOCK.md)
-- [灰度发布](docs/GRAY_PUBLISH.md)
-- [可视化控制台 z-rpc-admin](docs/ADMIN.md)
-- [从 Dubbo 迁移](docs/MIGRATE_FROM_DUBBO.md)
-- [运维手册](docs/OPERATIONS.md)
-
----
-
-## 🤝 贡献
-
-```bash
-mvn clean verify
-# 含集成测试: Netty client/server live + 序列化互转 + 集群容错
-```
-
----
-
-## 📄 许可证
-
-[MIT License](LICENSE)
-
----
-
-## 🔗 相关项目
-
-| 项目 | 关系 |
-|---|---|
-| [z-cache](https://github.com/z-opc-foundation/z-cache) | 同系列 — 分布式缓存 |
-| [z-mq](https://github.com/z-opc-foundation/z-mq) | 同系列 — 分布式消息队列 |
-| [z-gw](https://github.com/z-opc-foundation/z-gw) | z-gw 通过 `lb://service-name` 发现 z-rpc provider |
-| [z-vector](https://github.com/z-opc-foundation/z-vector) | 同系列 — 向量数据库 |
-| [z-graph](https://github.com/z-opc-foundation/z-graph) | 同系列 — 图数据库 |
-| [z-boot](https://github.com/z-opc-foundation/z-boot) | 同系列 — Spring Boot Starter 聚合 + BOM |
-
-> **通过 [z-boot-rpc-starter](https://central.sonatype.com/artifact/io.github.yuku123/z-boot-rpc-starter) 可以一行 import 集成 z-rpc + 自动锁定版本**
-
----
-
-## 📮 联系
-
-- GitHub Issues: 提交 bug / feature request
-- Email: yuku123@users.noreply.github.com
-
-![z-rpc-logo](https://img.shields.io/badge/z--rpc-1.0.0-blue)
-![java](https://img.shields.io/badge/Java-8%2B-orange)
-![maven](https://img.shields.io/badge/Maven-multi--module-brightgreen)
-![license](https://img.shields.io/badge/License-Apache%202.0-blue)
-
----
-
-## ✨ 核心特性
-
-- 🧩 **微内核 + SPI 插件化** - 协议/序列化/负载均衡/集群/路由/过滤器 全部 SPI 可替换
-- 🌐 **多种序列化** - Java / JSON / Hessian2 / Kryo / Protobuf 5 种实现
-- 🔌 **多注册中心** - z-config（默认）/ In-Memory / ZK Naming
-- ⚖️ **5 种负载均衡** - Random / RoundRobin / LeastActive / SmoothWeightedRR / ConsistentHash
-- 🛡 **6 种集群容错** - Failover / Failfast / Failsafe / Failback / Broadcast / Available
-- 🚦 **10 个内置 Filter** - 监控/Trace/上下文/Mock/Token
-- 📊 **完整指标** - QPS / P50-P90-P99 / 错误率 / 活跃连接
-- 🧰 **Mock 与泛化调用** - 配合 z-rpc-admin 动态 Mock
-- 🎨 **可视化控制台** - React + Ant Design + Vite + ECharts
-- 🔌 **Spring Boot 自动装配** - 注解驱动 (`@ZRpcService` / `@ZRpcReference`)
-
----
-
-## 📁 项目结构
-
-```
-z-rpc/                                          # Maven 聚合（17 子模块）
-├── z-rpc-common                                # 基础：URL/Node/Result/RpcException
-├── z-rpc-spi                                   # SPI 微内核：ExtensionLoader + @SPI/@Adaptive
-├── z-rpc-api                                   # 核心接口：Invoker/Protocol/Filter/ProxyFactory
-├── z-rpc-serialize                             # 5 种序列化器
-├── z-rpc-protocol                              # Z-RPC 私有二进制协议 (24 字节头)
-├── z-rpc-remoting                              # Netty 4 + 连接池 + 心跳
-├── z-rpc-registry                              # 注册中心：z-config / memory / zk
-├── z-rpc-cluster                               # 集群/路由/负载均衡
-├── z-rpc-filter                                # 内置 Filter 链
-├── z-rpc-mock                                  # Mock + 泛化调用
-├── z-rpc-metrics                               # 指标采集与上报
-├── z-rpc-async                                 # DefaultFuture + RpcContext
-├── z-rpc-core                                  # 聚合包（对外发布）
-├── z-rpc-spring-boot-starter                   # Spring Boot 2.7 自动装配
-├── z-rpc-examples                              # Demo
-│   ├── user-service                            # 提供方：UserService
-│   └── order-service                           # 消费方：OrderConsumer
-├── z-rpc-admin                                 # 管理后台后端（端口 9090）
-└── z-rpc-admin-frontend                        # 管理控制台前端（端口 5173）
-```
-
----
-
-## 🏛 整体架构
-
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                          Spring Boot Application                      │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐    │
-│  │ @ZRpcService    │  │ @ZRpcReference  │  │ @EnableZRpc     │    │
-│  │ HelloServiceImpl│  │ UserService     │  │ scanBasePackages│    │
-│  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘    │
-└───────────┼─────────────────────┼─────────────────────┼──────────────┘
-            │                     │                     │
-   ┌────────▼────────┐   ┌────────▼────────┐   ┌────────▼────────┐
-   │ ServiceConfig   │   │ ReferenceConfig│   │ ZRpcAutoConfig  │
-   │   + Export      │   │   + Refer      │   │   + SPI Load    │
-   └────────┬────────┘   └────────┬────────┘   └────────┬────────┘
-            │                     │                     │
-            ▼                     ▼                     ▼
-   ┌─────────────────────────────────────────────────────────────┐
-   │            Filter Chain (Consumer / Provider)              │
-   │  Trace → Context → Monitor → Mock → Future → Token        │
-   └────────────────────────┬────────────────────────────────────┘
-                                │
-            ┌───────────────────┼───────────────────┐
-            ▼                   ▼                   ▼
-   ┌────────────────┐  ┌────────────────┐  ┌────────────────┐
-   │   Cluster      │  │   Directory    │  │  LoadBalance   │
-   │ Failover/..    │  │  Registry/Static│  │ Random/RR/LAH  │
-   └────────┬───────┘  └────────┬───────┘  └────────┬───────┘
-            │                   │                   │
-            └───────────────────┼───────────────────┘
-                                ▼
-   ┌─────────────────────────────────────────────────────────────┐
-   │            Invoker (Provider 代理) + Connection Manager      │
-   └────────────────────────┬────────────────────────────────────┘
-                                │
-            ┌───────────────────┴───────────────────┐
-            ▼                                         ▼
-   ┌────────────────────┐                ┌────────────────────┐
-   │  z-rpc-registry    │                │  z-rpc-protocol    │
-   │  z-config Naming   │                │  Z-RPC 24B header  │
-   │  watch + push      │                │  5 种序列化器        │
-   └────────────────────┘                │  Netty 长连接       │
-                                          │  心跳 + 重连        │
-                                          └────────────────────┘
-```
-
-### 协议格式 (Z-RPC Binary)
-
-```
- 0                   1                   2                   3
- 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                    Magic Number (0x5A525043 "ZRPC")         |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|Ver| MsgType |SerType|Cmp|        Status (2 bytes)            |
-| 4b|  4b   |  4b   |4b |                                    |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                    Request ID (8 bytes)                       |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                    Body Length (4 bytes)                      |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-| Header Length (2B) |   Reserved (2B)                        |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|     [Optional] Attachments (KV)         |      Body         |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-```
-
----
-
-## 🚀 快速开始
-
-### 环境要求
-
-- JDK 8+
-- Maven 3.6+
-- 已部署 z-config (端口 8084) 【可选，未启动时降级为 InMemoryRegistry】
-- Node 16+ (前端开发)
-
-### 1. 启动注册中心 (可选)
-
-```bash
-# 如果已有 z-config 则跳过，否则本地起一个
-git clone https://github.com/zifangsky/z-config.git
-cd z-config && mvn spring-boot:run
-```
-
-### 2. 启动 Admin (可选)
-
-```bash
-cd z-rpc-admin
-mvn spring-boot:run          # http://localhost:9090
-```
-
-### 3. 启动 Provider Demo
-
-```bash
-cd z-rpc-examples/user-service
-mvn spring-boot:run          # RPC 监听 20880，HTTP 20881
-```
-
-### 4. 启动 Consumer Demo
-
-```bash
-cd z-rpc-examples/order-service
-mvn spring-boot:run          # HTTP 监听 20890
-```
-
-### 5. 测试调用
-
-```bash
-curl "http://localhost:20890/order/create?userId=1&amount=99.9"
-curl "http://localhost:20890/order/user/1"
-```
-
-返回示例：
-
-```json
-{"id":1001,"userId":1,"userName":"Alice","amount":99.9,"status":"CREATED"}
-```
-
-### 6. 启动前端控制台 (可选)
-
-```bash
-cd z-rpc-admin-frontend
-pnpm install      # 或 npm install
-pnpm dev          # http://localhost:5173
-```
-
----
-
-## 📚 使用指南
-
-### 注解驱动（推荐）
-
-**Provider：**
-
-```java
-@ZRpcService(interfaceClass = UserService.class, version = "1.0.0", weight = 100)
-@Service
-public class UserServiceImpl implements UserService {
-    public UserDTO getUser(Long id) {
-        return userMap.get(id);
-    }
-}
-```
-
-**Consumer：**
-
-```java
-@Service
-public class OrderConsumer {
-    @ZRpcReference(version = "1.0.0", timeout = 3000, retries = 2, loadbalance = "random")
-    private UserService userService;
-
-    public UserDTO queryUser(Long id) {
-        return userService.getUser(id);   // 像本地方法一样调用
-    }
-}
-```
-
-**配置：**
+`application.yml` —— 下面这份**只列 `ZRpcProperties` 真实存在的 key**（前缀 `z.rpc`，嵌套类 `application` / `registry` / `server` / `consumer` / `provider` / `protocol`）：
 
 ```yaml
 z:
@@ -751,46 +76,213 @@ z:
     enabled: true
     application:
       name: user-service
-    registry:
-      address: 127.0.0.1:8084
-      type: z-config
+      version: 1.0.0
+      organization: example
     server:
+      enabled: true
+      host: 0.0.0.0
       port: 20880
-    consumer:
+      threads: 200
+      ioThreads: 0
+      payload: 8388608
+    protocol:
+      name: z-rpc            # 目前只有这一种
+      port: 20880
+      serialization: java    # 线上真正用的是 Java 原生序列化，见"协议"一节
+    provider:
       timeout: 3000
-      loadbalance: random
-      cluster: failover
+      threads: 200
+      delay: 0
+      weight: 100
+      async: false
+      token: ""
+      serialization: java
 ```
 
-### 编程式 API
+上一版 README 这里的 `z.rpc.port` / `z.rpc.serialize` / `z.rpc.cluster` / `z.rpc.loadbalance` / `z.rpc.retries` / `z.rpc.timeout` / `z.rpc.group` / `z.rpc.filter.enabled` / `z.rpc.metrics.*` / `z.rpc.client.*` / `z.rpc.server.threads.boss|worker|business` / `z.rpc.server.channel.*` / `z.rpc.registry.group|username|password` / `z.rpc.mock-default` / `z.rpc.rest-port` **都不是 `ZRpcProperties` 的字段**。Spring Boot 的 relaxed binding 对未知 key 是**静默忽略**，所以照旧文档写不会报错，只会被无声丢掉。
+
+#### 客户端（消费方）
 
 ```java
-ServiceConfig<UserService> service = new ServiceConfig<UserService>()
-    .setInterface(UserService.class)
-    .setRef(new UserServiceImpl())
-    .setVersion("1.0.0")
-    .setPort(20880)
-    .setRegistry("127.0.0.1:8084");
-service.export();
+@RestController
+public class UserController {
 
-ReferenceConfig<UserService> ref = new ReferenceConfig<UserService>()
-    .setInterfaceClass(UserService.class)
-    .setVersion("1.0.0")
-    .setRegistry("127.0.0.1:8084");
-UserService proxy = ref.get();
-proxy.getUser(1L);
+    @ZRpcReference(version = "1.0.0", url = "z-rpc://127.0.0.1:20880")
+    private UserService userService;     // 远程代理，像本地 bean 一样用
+
+    @GetMapping("/users/{id}")
+    public User get(@PathVariable long id) {
+        return userService.findById(id); // 走 RPC
+    }
+}
 ```
+
+`url` 是**直连**，目前这是唯一被跑通过的消费方式。注册中心那条路还没接线：`z.rpc.registry.*` 四个 key 都真实存在（`address` / `namespace` / `type` / `enabled`），但 core 侧 `ServiceConfig.registerToRegistry()` 里加载注册中心的那一行是注释掉的，字段恒 null，随后那句 `registryService.register(..)` 必抛 NPE 并被外层 `catch (Exception)` 吞成一行日志，`export()` 照样"成功"（报告 N13 / §2）。`z-config` 与 ZK 的实现类在本仓不存在。
+
+这条链路的端到端证据：两个真 JVM（Ubuntu 18.04 / JDK 1.8.0_362）上，`order-service` 经 `@ZRpcReference(url = "zrpc://127.0.0.1:20880")` 取回**只存在于 `user-service` 进程内存里的** `userName='Alice'`（报告 §9.5–§9.8）。
+
+### 方式二：API 调用（不依赖 Spring）
+
+上一版这一段用的 `RpcServerConfig` / `RpcClientConfig` / `server.register(接口, 实现)` / `client.start()` / `client.createProxy(..)` 全部不存在。真实形状如下 —— 注意 `RpcClient` 只发 `RpcRequest`，**不给接口代理**；要拿到能按接口调的 `Invoker`，走 `Protocol` SPI：
+
+```java
+// 服务端：一台真实监听的 RpcServer
+RpcServer server = new RpcServer("0.0.0.0", 20880);
+server.registerService(UserService.class, new UserServiceImpl());
+server.start();                       // throws InterruptedException
+
+// 客户端：经 Protocol SPI 得到 Invoker，自己拼 Invocation
+ZRpcProtocolImpl protocol = new ZRpcProtocolImpl();
+URL provider = new URL("z-rpc", "127.0.0.1", 20880, UserService.class.getName());
+Invoker<UserService> invoker = protocol.refer(UserService.class, provider, null);
+Result r = invoker.invoke(new RpcInvocation(UserService.class.getName(), "findById",
+        new Class<?>[] { long.class }, new Object[] { 1001L }));
+Object value = r.getValue();          // 由 Provider 算出来的结果
+invoker.destroy();
+server.stop();
+```
+
+`registerService(Class, Object)` 注册的是**裸接口名**；要把版本并进路由键得用 `register(Class, Object, String version)`（键形如 `接口全名:version`，`RpcServer.serviceKey(..)` 就是这条规则的出处）。两条路都不合版本那条的坑见报告 N14。
+
+`Invoker.invoke(..)` 声明 `throws Throwable` —— 业务异常不保证被包成 `RpcException`，上层按 `RpcException` catch 会漏（报告 N16 最后一条）。
+
+---
+
+## 📦 模块与实际装配状态
+
+`ls -d z-rpc-*/` 有 **17** 个目录，根 pom 的 `<modules>` 里**启用 14 个**，另外 3 行被注释掉：`z-rpc-examples`、`z-rpc-admin`，还有一行重复的 `z-rpc-registry`（registry 本身在启用列表里，注释那行是历史遗留）。上一版写的"17 子模块"是把目录数当成了模块数。
+
+| 模块 | reactor | 里面真实存在的东西 |
+|---|---|---|
+| `z-rpc-common` | ✅ | `URL` / `Node` / `RpcException` / `RpcConstants` / `ProtocolConstants`（`Result` 不在这，在 `z-rpc-api`） |
+| `z-rpc-spi` | ✅ | `@SPI` / `@Adaptive` / `@Activate` / `ExtensionLoader` |
+| `z-rpc-api` | ✅ | `Invoker` / `Invocation` / `Result` / `Filter` / `Protocol` / `ProxyFactory` 接口 + `JdkProxyFactory` |
+| `z-rpc-serialize` | ✅ | 5 个 `Serialization` 注册项（java / json / hessian2 / kryo / protobuf） |
+| `z-rpc-protocol` | ✅ | 26 字节定长头的 `ZRpcMessageEncoder` / `ZRpcMessageDecoder` + `ZRpcProtocolImpl` |
+| `z-rpc-remoting` | ✅ | `RpcServer` / `RpcClient` / 10 字节帧的 `RpcMessageEncoder` / `RpcMessageDecoder` / `RpcServerHandler` |
+| `z-rpc-registry` | ✅ | `RegistryService` + `InMemoryRegistryService`、`RpcRegistry` + `InMemoryRpcRegistry` |
+| `z-rpc-cluster` | ✅ | 5 个 `Cluster`、3 个 `LoadBalance`、`Directory` / `AbstractDirectory` / `StaticDirectory` / `Router`（`RegistryDirectory` 在 `z-rpc-core`，同包不同模块） |
+| `z-rpc-filter` | ✅ | **4** 个 Filter：`ConsumerTraceFilter` / `MonitorFilter` / `ProviderContextFilter` / `ProviderMonitorFilter` |
+| `z-rpc-mock` | ✅ | **1 个接口** `GenericService`，无实现、无代理工厂 |
+| `z-rpc-metrics` | ✅ | `Histogram` / `MetricsCollector` / `MetricsReporter` |
+| `z-rpc-async` | ✅ | `RpcContext`（traceId + attachments）/ `DefaultFuture` |
+| `z-rpc-core` | ✅ | `ServiceConfig` / `ReferenceConfig` / `RegistryDirectory` 消费侧装配 |
+| `z-rpc-spring-boot-starter` | ✅ | `@ZRpcService` / `@ZRpcReference` / `@EnableZRpc` / `ZRpcProperties` / 导出器与注入器 |
+| `z-rpc-examples` | ❌ 注释掉 | `user-service`（提供方）+ `order-service`（消费方） |
+| `z-rpc-admin` | ❌ 注释掉 | Spring Boot 后端，监听 **19090** |
+| `z-rpc-admin-frontend` | ❌ 不是 Maven 模块 | React + AntD + Vite 前端，监听 **5173** |
+
+---
+
+## ✨ 能力矩阵（实测）
+
+扩展点资源目录是 **`META-INF/z-rpc/`**（带连字符）。上一版在"微内核 + SPI"一节写的 `META-INF/zrpc/` 在仓库里不存在，两处混用会让自定义扩展静默加载不到。`ExtensionLoader` **不走 JDK `ServiceLoader`**（`src/main` 里 `ServiceLoader` 命中 0 行），它自己读上面那个目录下的清单文件。
+
+| 扩展点 | `@SPI` | 已注册实现 | key |
+|---|---|---|---|
+| `com.zifang.z.rpc.api.Protocol` | ✅ | **1** | `z-rpc` |
+| `com.zifang.z.rpc.api.ProxyFactory` | ✅ | **1** | `jdk` |
+| `com.zifang.z.rpc.cluster.Cluster` | ✅ | **5** | `failover` / `failfast` / `failsafe` / `failback` / `broadcast` |
+| `com.zifang.z.rpc.loadbalance.LoadBalance` | ✅ | **3** | `random` / `roundrobin` / `leastactive` |
+| `com.zifang.z.rpc.filter.Filter` | ✅ | **4** | `consumer-trace` / `monitor` / `provider-context` / `provider-monitor` |
+| `com.zifang.z.rpc.serialize.Serialization` | ✅ | **5** | `java` / `json` / `hessian2` / `kryo` / `protobuf` |
+| `com.zifang.z.rpc.registry.RegistryService` | ✅ | **1** | `in-memory` |
+
+`Cluster` 那一行的 ✅ 有半边条件：`com.zifang.z.rpc.cluster` 的 5 个类型（`Cluster` / `Directory` / `AbstractDirectory` / `Router` / `FailoverCluster`）在 `z-rpc-cluster` 与 `z-rpc-core` 里**各编译了一份**，core 那 5 份是修复前的快照，而唯一有差异的正是 `Cluster.java` —— 它少了 `@SPI("failover")` 那两行。依赖 `z-rpc-core` 的进程里 core 自己的 classes 在 classpath 上排第一，加载到的就是**没注解的那份**，于是 `ExtensionLoader.getExtensionLoader(Cluster.class)` 在 core 及其下游（含 starter、含已发布的 1.0.2）照样抛 `is not annotated with @SPI`（报告 N12，两条 `bug_` 用例钉着；删哪一边是模块边界决策，见报告 §8 第 7 条）。
+
+### 集群容错（5 种，不是 6 种）
+
+`failover` / `failfast` / `failsafe` / `failback` / `broadcast`。上一版列的第 6 种 **`available` 在仓库里没有实现类**，任何 SPI 清单里也搜不到。
+
+`FailoverCluster` 的语义有五处和名字不符，用之前先读报告 N16：首次尝试**永远跳过 provider #0**（`select(invokers, 0, …)` 在 `size ≥ 2` 时返回 `get(1)`）；只有**抛出来**的失败才重试，`Result` 里带异常的一次都不重试；`isAvailable()` 只看目录空不空；`retries=-1` 会走到那句 `IllegalStateException("Should never reach here")`；无 provider 抛的是裸 `IllegalStateException` 而不是 `RpcException.noProvider`。
+
+### 负载均衡（3 种，不是 5 种）
+
+`random` / `roundrobin` / `leastactive`。上一版的 **`SmoothWeightedRR` 与 `ConsistentHash` 不存在**（`forking` / `consistenthash` 在任何 SPI 清单里都搜不到）。
+
+而且**配置项本身没人读**：`z.rpc.consumer.loadbalance` / `cluster` / `timeout` / `retries` 会被搬到 `ReferenceConfig` 的字段上，但下游没有任何一处 consult —— 策略名随便写也不报错，超时最终落到 `RpcClient` 的字段常量（报告 N15：`bug_loadBalanceSettingIsNeverConsulted`、`bug_clusterSettingIsIgnored`、`bug_timeoutSettingIsWriteOnly`、`bug_protocolSettingDoesNotChangeTheFrame`）。
+
+### 序列化（5 种注册，2 种有硬限制）
+
+`java`（默认）/ `json` / `hessian2` / `kryo` / `protobuf` 都在 SPI 清单里。已知两条实测限制，还没修：
+
+- **`json`**：目标类型是容器时会静默丢条目 —— `deserialize(bytes, LinkedHashMap.class)` 回来是 `size=0` 的 Map，同一份数据 java / hessian2 / kryo 都能拿回 2 个条目（报告 H3；根因在外部构件 `z-util-parser-json`）。
+- **`protobuf`**：只接受 `com.google.protobuf.MessageLite`，喂 POJO / `String` / `Integer` 一律抛 `RpcException`；本仓没有任何 `.proto` 生成类，所以这个注册项实际不可用（报告 H4）。
+- 五个实现对 `serialize(null)` 都返回**长度 0** 的数组，而不是抛错。
+
+未知序列化 id 现在会 fail-fast（上一版是静默回落 Hessian2），已修，报告 H2 / §7。
+
+### 协议
+
+**线上跑的帧是 10 字节**：`ZRPC`(4) + version(1) + msgType(1) + bodyLen(4)，body 用 **Java 原生序列化**（`AC ED` 开头）。这是 `z-rpc-remoting` 的 `RpcMessageEncoder`，也是唯一被真实 socket 往返验证过的一套（报告编解码轮 / `RpcMessageCodecTest` 18 条）。
+
+`z-rpc-protocol` 里另有**第二套离线编解码器**，定长头 **26 字节**（`ProtocolConstants.HEADER_LENGTH = 26`；上一版写 24，那 2 字节的差会让半包停在 24/25 字节时抛 `IndexOutOfBoundsException`，已修，报告 H1）：
+
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Magic Number (0x5A525043 "ZRPC")          |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|Ver (1B)  |MsgType(1B)|SerId(1B)|Cmp(1B)|     Status (2B)     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Request ID (8 bytes)                       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Body Length (4 bytes)                      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Header Length (2B) |   Reserved (2B)                          |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+别把两边读数混着读：`FrameCodecTest` 的 17 条钉的是 26 字节那套，生产 `RpcClient` / `RpcServer` 走的是 10 字节那套。**`dubbo` 与 `http` 两种协议没有实现**（`Protocol` SPI 只有 `z-rpc` 一个 key），所以旧 README 的"多协议端口：单服务同时监听 zrpc + http"与"通过 Rest 调用（dubbo 兼容）"不成立。
+
+### 注解属性到底哪些有落点
+
+这张表是照 `ZRpcServiceExporter` 与 `ZRpcReferenceInjector` 的实测写的，不是照注解声明写的（报告 H8 / H9 / N15）：
+
+| 注解 | 有落点的属性 | 没有落点的属性 |
+|---|---|---|
+| `@ZRpcService`（共 11 个属性） | `interfaceClass`（不写则取实现类唯一接口，多接口全导）、`version` | `interfaceName` / `group` / `weight` / `delay` / `timeout` / `retries` / `loadbalance` / `cluster` / `async` —— `RpcServer` 的三个 `register*` 重载里**没有任何 int/long 参数位**可放 |
+| `@ZRpcReference`（共 17 个属性） | `interfaceClass` / `interfaceName` / `version` / `group` / `timeout` / `retries` / `loadbalance` / `cluster` / `registry` / `url` / `async` / `oneway` 会被搬进 `ReferenceConfig` | `check` / `lazy` / `connections` / `client` / `serialization` **连搬都没搬**（后 5 个里 4 个 `ReferenceConfig` 连 setter 都没有）；搬过去的 `timeout` / `cluster` / `loadbalance` / `retries` 下游没人读 |
+
+`@ZRpcReference` 的 `check` 默认 `true` 完全不起作用：对一个必连不上的 `zrpc://127.0.0.1:1`，注入器照样返回 JDK 代理，故障被推迟到首次调用（报告 `bug_deadUrlStillYieldsProxy`）。
+
+### 声明式 API（`ServiceConfig` / `ReferenceConfig`）
+
+**所有 setter 都返回 `void`**（`ServiceConfig` 20 个 setter、`ReferenceConfig` 同理），所以旧 README 那段 `new ServiceConfig<>().setInterface(..).setRef(..)` 的链式写法不可能成立；方法名也是 `setInterfaceClass` 而不是 `setInterface`。真实形状：
+
+```java
+ServiceConfig<UserService> service = new ServiceConfig<UserService>();
+service.setInterfaceClass(UserService.class);
+service.setRef(new UserServiceImpl());
+service.setPort(20880);
+service.export();                      // 注意：bind 失败也返回，见下方警告
+
+ReferenceConfig<UserService> ref = new ReferenceConfig<UserService>();
+ref.setInterfaceClass(UserService.class);
+ref.setUrl("z-rpc://127.0.0.1:20880");
+UserService proxy = ref.get();
+Object one = proxy.findById(1001L);
+ref.destroy();
+service.unexport();
+```
+
+两条实测警告：
+
+- `export()` 在端口被占、bind 失败时**照样返回并把 `exported` 置 true**（报告 N18 `bug_exportLiesWhenBindFails`）。
+- `ReferenceConfig.destroy()` 会去 `destroy` 那个 **SPI 单例** registry，同 JVM 里其他引用者的注册/订阅一起失效（报告 N18 `bug_destroyTakesDownSharedRegistry`）。
 
 ### 自定义 Filter
 
 ```java
 @Activate(group = "consumer", order = 50)
 public class MyFilter implements Filter {
+
     @Override
-    public Result invoke(Invoker<?> invoker, Invocation inv) throws Throwable {
+    public Result invoke(Invoker<?> invoker, Invocation invocation) throws Throwable {
         long start = System.currentTimeMillis();
         try {
-            return invoker.invoke(inv);
+            return invoker.invoke(invocation);
         } finally {
             System.out.println("RT=" + (System.currentTimeMillis() - start));
         }
@@ -798,102 +290,193 @@ public class MyFilter implements Filter {
 }
 ```
 
-在 `META-INF/z-rpc/com.zifang.z.rpc.filter.Filter` 中声明：
+资源文件 `META-INF/z-rpc/com.zifang.z.rpc.filter.Filter`：
 
 ```
-my=com.zifang.demo.MyFilter
+my=com.example.filter.MyFilter
+```
+
+**但当前没有任何一处生产代码装配过滤器链**，所以这个 Filter 写出来不会被调用（报告 N19，10 条全绿钉着这件事）：`getActivateExtension` 在 `src/main` 的调用点是 **0**（唯一的定义在 `ExtensionLoader` 自己文件里）；库里没有"链对象"，责任链只有一个返回 `List` 的加载器，没有任何东西按 order 把 `Invoker` 包起来；真实服务端 `RpcServerHandler` 是拿 `RpcRequest` 直接反射调 POJO。另外 `getActivateExtension()` 还叠了一个加载时序 bug：`cachedActivates` 只在 `loadExtensionClasses()` 里填，冷 loader 上它永远返回空，必须先碰一次别的 API 才有内容（报告 H5）。`@Activate` 的三个属性（`group` / `value` / `order`）真实存在且运行时读得到，只是没人用。
+
+---
+
+## 还没做（这些是实测结论，不是计划）
+
+| 旧 README 的主张 | 实测 |
+|---|---|
+| `@ZRpcReference(mock = "true")`、`mockReturn`、`MockFilter`、`mock-default` | `@ZRpcReference` 的 17 个属性里 `mock` 出现 **0** 次；`MockFilter` 类不存在；`ZRpcProperties` 没有 `mock-default` key；`z-rpc-mock` 整模块只有 `GenericService` 一个接口 |
+| 泛化调用 `client.createGenericProxy(name, version)` | 没有任何 `createGenericProxy`。`GenericService` 有 `$invoke(String, String[], Object[])` 和 `default $invokeMap(..)`，但**没有生产实现、没有代理工厂产出它**；`$invokeMap` 的参数类型是取实参运行时类，子类会被报成子类、`null` 只能报成 `java.lang.Object`（报告 N22） |
+| 注册中心 z-config / ZK Naming / "未启动时降级为 InMemoryRegistry" | `RegistryService` SPI 只有 `in-memory` 一项；`ZConfigRegistry` / `ZkNamingRpcRegistry` 源码是 `.java.disabled` 且已从清单里注释掉；core 侧加载注册中心的那行注释着，字段恒 null（N13）；没有任何"降级"代码路径 |
+| Prometheus 集成（`z_rpc_*` 指标）、对接 SkyWalking / Jaeger | 全仓 `src/main` 里 `z_rpc` / `prometheus` 命中 **0** 行；链路追踪只有本地 `traceId` 塞 MDC，没有 exporter |
+| 指标上报 `Filter → MetricsCollector → MetricsReporter → HTTP POST → z-rpc-admin` | `MetricsReporter` 的"上报"只打日志 —— 直接扫它的 class 字节常量池，`java/net`、`Socket`、`Http`、`admin` **一个都不出现**（N20 `bug_reportingHasNoTransport`）；且 `src/main` 里没有任何地方启动它。admin 侧确实有 `POST /api/admin/metrics/push`，但没人发 |
+| 指标表里的 `ConnectionManager` / `HeartbeatReconnector` | 两个类都不存在。真实存在的只有 `Histogram` / `MetricsCollector` / `MetricsReporter`（`z-rpc-metrics`）与 `MonitorFilter` / `ProviderMonitorFilter`（`z-rpc-filter`） |
+| 健康检查：心跳 + 离线剔除 | 目录层订阅到空通知时**旧 provider 全部留着**，服务下线在客户端永不生效（N17 `bug_emptyNotificationIsIgnored`）；一次失败把该 invoker 永久打掉且不重建（N17 `bug_oneFailureBricksTheInvoker`） |
+| 连接池复用 / `ReferenceCountExchangeClient` / 时间轮 `HashedWheelTimer` | 三个名字在 `src/main` 都不存在。`z.rpc.consumer.connections` 属性有，注入器直接丢弃（H8 余下五项） |
+| 灰度发布按 version / group 路由、`z.rpc.weight.<group>` 权重表 | `weight` 是个 map 形 key，`ZRpcProperties` 里只有 `provider.weight`（int）；`group` 在注册中心配置里不存在；声明式导出走的是不带版本的那条注册路径，**版本在两侧各丢一次**，而 `RegistryDirectory` 以 `host:port` 为键，同地址两个版本会塌成一条（N14） |
+
+---
+
+## 🔬 SPI 扩展点怎么加
+
+`@SPI` 只能标在**接口**上，值是该接口的默认实现 key（`@SPI("failover")`）；`Scope` 枚举与 `@Spi(scope = ..)` 这种写法在仓库里不存在（旧 README 的 Case 6 就是这么写的，编译不过）。
+
+```java
+public class MyRegistryService implements RegistryService {
+
+    @Override
+    public void register(URL url) {
+    }
+
+    @Override
+    public void unregister(URL url) {
+    }
+
+    @Override
+    public void subscribe(URL url, NotifyListener listener) {
+    }
+
+    @Override
+    public void unsubscribe(URL url, NotifyListener listener) {
+    }
+
+    @Override
+    public List<URL> lookup(URL url) {
+        return new ArrayList<URL>();
+    }
+
+    @Override
+    public void destroy() {
+    }
+}
+```
+
+资源文件 `META-INF/z-rpc/com.zifang.z.rpc.registry.RegistryService`：
+
+```
+my-registry=com.example.MyRegistryService
+```
+
+`RegistryService` 接口上已有 `@SPI("in-memory")`，所以新增实现不需要改接口。加载侧一切正常（`getExtension("my-registry")` 拿得到实例、按名字缓存成单例），**只是 core 侧不会去加载它** —— 要用得自己 `setRegistryService(..)` 手工注入 `ServiceConfig` / `ReferenceConfig`（这正是报告 `registryModeWorksWhenHandWired` 跑通的方式）。
+
+---
+
+## 🏗 目录结构
+
+```
+z-rpc/
+├── pom.xml                                  # 聚合 + dependencyManagement，14 个启用模块
+├── z-rpc-common/                            # URL / Node / Result / RpcException / ProtocolConstants
+├── z-rpc-spi/                               # @SPI @Adaptive @Activate ExtensionLoader
+├── z-rpc-api/                               # Invoker Invocation Result Filter Protocol ProxyFactory
+├── z-rpc-serialize/                         # java json hessian2 kryo protobuf
+├── z-rpc-protocol/                          # 26 字节定长头编解码 + ZRpcProtocolImpl
+├── z-rpc-remoting/                          # RpcServer RpcClient + 线上那套 10 字节帧
+├── z-rpc-registry/                          # RegistryService/RpcRegistry + 两份 InMemory 实现
+├── z-rpc-cluster/                           # 5 Cluster + 3 LoadBalance + Directory + Router
+├── z-rpc-filter/                            # 4 个 Filter（暂无装配点）
+├── z-rpc-mock/                              # GenericService 接口（无实现）
+├── z-rpc-metrics/                           # Histogram MetricsCollector MetricsReporter
+├── z-rpc-async/                             # RpcContext DefaultFuture
+├── z-rpc-core/                              # ServiceConfig ReferenceConfig RegistryDirectory
+├── z-rpc-spring-boot-starter/                # 注解 + ZRpcProperties + 导出器/注入器
+├── z-rpc-examples/                          # 不在 reactor：user-service(提供方) order-service(消费方)
+├── z-rpc-admin/                             # 不在 reactor：Spring Boot 后端，19090
+└── z-rpc-admin-frontend/                     # React + AntD + Vite，5173
 ```
 
 ---
 
-## 🔬 SPI 扩展点
+## 🧪 跑测试与实跑示例
 
-| 接口             | 默认实现                  | 资源文件                                            |
-|----------------|-----------------------|--------------------------------------------------|
-| `Protocol`     | `ZRpcProtocolImpl`    | `META-INF/z-rpc/com.zifang.z.rpc.api.Protocol`  |
-| `ProxyFactory` | `JdkProxyFactory`     | `META-INF/z-rpc/com.zifang.z.rpc.api.ProxyFactory` |
-| `Cluster`      | `FailoverCluster` 等 5 | `META-INF/z-rpc/com.zifang.z.rpc.cluster.Cluster` |
-| `LoadBalance`  | `Random` / `RR` / `LAH` | `META-INF/z-rpc/com.zifang.z.rpc.loadbalance.LoadBalance` |
-| `Serialization`| 5 种                   | `META-INF/z-rpc/com.zifang.z.rpc.serialize.Serialization` |
-| `RegistryService` | `ZConfig` / `InMemory` | `META-INF/z-rpc/com.zifang.z.rpc.registry.RegistryService` |
-| `Filter`       | 10 个                  | `META-INF/z-rpc/com.zifang.z.rpc.filter.Filter`  |
+```bash
+mvn -B clean test                 # 反应堆 14 个模块
+cd z-rpc-admin && mvn -B clean test   # admin 不在 reactor，要单独跑
+```
 
----
+当前读数（2026-09-26，README 契约轮之后）：**531 条用例 = 反应堆 519 + admin 12**，49 个测试源文件（515 个 `@Test` / `@ParameterizedTest` 标注）/ 41 个 surefire 报告类，`fail / error / skip` 全 0。新增的 12 条全部在 `z-rpc-spring-boot-starter` 的 `ReadmeContractTest` 里，钉的就是本 README 的主张。同一棵树在 macOS/JDK 25/Maven 3.9.14 与 Ubuntu 18.04/JDK 1.8.0_362/Maven 3.6.0 上逐模块读数相同（只有耗时不同）。逐模块分布与被钉住的缺陷清单见 [`_doc/002_测试报告.md`](_doc/002_测试报告.md)。
 
-## 📊 指标与监控
+> 上一版这里写的 "312 + 78 + 14 + 31 + 22 + 18 + 15 PASS" 在仓库里没有任何对应产物，已按实测替换。
 
-| 指标                  | 类型      | 位置              |
-|---------------------|---------|-----------------|
-| `qps_{svc}_{m}`     | 计数器     | MonitorFilter    |
-| `rt_p50/p90/p99`    | 直方图     | Histogram        |
-| `error_rate`        | 计数器     | MonitorFilter    |
-| `active_connections`| Gauge   | ConnectionManager |
-| `reconnect_count`   | 计数器     | HeartbeatReconnector |
+### 两个示例应用
 
-**上报流程：** `Filter → MetricsCollector → MetricsReporter → HTTP POST → z-rpc-admin`
+`z-rpc-examples` 的 pom 坐标是 `com.zifang:z-rpc-core:1.0.0-SNAPSHOT` 一族，**只存在于作者机器的 `~/.m2`**，且不在 reactor 里（报告 N43）。在干净机器上直接 `mvn spring-boot:run` 连编译都过不去；要跑示例得先让 examples 解析到本仓构件。
 
----
+跑通后的形状（已实测）：
 
-## 🛠 性能参考
+| 应用 | HTTP | RPC |
+|---|---|---|
+| `z-rpc-examples/user-service` | 20881 | 20880（`z.rpc.server.port`） |
+| `z-rpc-examples/order-service` | 20890 | 不起服务端（`z.rpc.server.enabled: false`） |
 
-- 单连接 QPS 10k+ @ P99 < 10ms (Hessian2 + Gzip)
-- 连接池复用：多 Consumer 共享长连接
-- 引用计数 ReferenceCountExchangeClient 模式（参考 Dubbo）
-- 时间轮 HashedWheelTimer 替代 ScheduledExecutorService
+```bash
+curl "http://localhost:20890/order/create?userId=1&amount=99.9"
+curl "http://localhost:20890/order/user/1"
+```
 
----
+返回体里的 `userName` 只存在于 `user-service` 进程的内存中 —— 能取回即证明跨进程调用成立：
 
-## 🏗 路线图
+```json
+{"id":1001,"userId":1,"userName":"Alice","amount":99.9,"status":"CREATED"}
+```
 
-- [x] 多模块 SPI 微内核
-- [x] Z-RPC 二进制协议 + 5 种序列化
-- [x] 6 种 Cluster + 5 种 LB
-- [x] 10 个内置 Filter
-- [x] Mock + 泛化调用
-- [x] Spring Boot Starter
-- [x] Admin 后端 + React 前端
-- [ ] 连接池 + 心跳完整实现
-- [ ] Triple 协议 (gRPC over HTTP/2)
-- [ ] 服务网格 Sidecar
-- [ ] 完整链路追踪 (类似 SkyWalking)
+`server.port`（Tomcat）与 `z.rpc.server.port`（Netty）**不能写成同一个值**：上一版两份 yml 都写 20880，Tomcat 先 bind、Netty 随后 `BindException`，该应用从来没成功启动过（报告 N44）。
+
+### 控制台
+
+```bash
+cd z-rpc-admin && mvn spring-boot:run          # http://localhost:19090
+cd z-rpc-admin-frontend && pnpm install && pnpm dev   # http://localhost:5173
+```
+
+上一版写 admin 在 9090 —— `z-rpc-admin/src/main/resources/application.yml` 里是 **19090**。
 
 ---
 
-## 📖 参考项目
+## 🐳 Docker
 
-| 项目         | 版本    | 借鉴点                                |
-|------------|-------|------------------------------------|
-| Dubbo      | 3.3.6  | SPI 微内核 / 集群容错 / 路由 / Triple |
-| SOFA-RPC   | 5.14.3 | 5 件套 / 4 层 Filter / 字节码生成     |
-| gRPC-Java  | 1.83.1 | 拦截器 / xDS / Channelz            |
-| brpc       | 1.17.0 | Server/Channel/Controller / bvar    |
-| rpcx       | 1.9.4  | 4 层正交架构 / 消息协议                |
+```dockerfile
+FROM eclipse-temurin:8-jdk AS build
+COPY . /src
+RUN cd /src && mvn -B -DskipTests package
 
-> 详细复刻分析参见：[/z-biz-creator/z-biz-learning-yuque-loc/yuque/开源研究/002_源码分析/](file:///Users/zifang/workplace/ceo_workplace/z-biz-creator/z-biz-learning-yuque-loc/yuque/开源研究/002_源码分析/)
+FROM eclipse-temurin:8-jre
+# 聚合模块 z-rpc-examples 自己不出 jar（没有 spring-boot-maven-plugin），
+# 可执行 jar 在两个示例子模块里：
+COPY --from=build /src/z-rpc-examples/user-service/target/*.jar /app.jar
+EXPOSE 20880 20881
+ENTRYPOINT ["java", "-jar", "/app.jar"]
+```
+
+`-Pcentral` 是**发布 profile**（上传 Central 用），跑普通构建不需要它；上一版把它写进了 Dockerfile。示例 jar 的可执行性还受 N43（examples 坐标）影响，先在能解析到本仓构件的环境里验证再拿去容器化。
+
+---
+
+## 📊 性能
+
+上一版这里有一张 "单连接 24,000 QPS / P99 1.2ms / 异步 145,000 QPS" 的表，**仓内没有任何基准产物能支撑这些数字**（没有 JMH、没有压测脚本、没有结果文件），已删除。要性能数据请先在 `_doc/` 里放一份可复现的压测记录。
+
+---
+
+## 📚 文档
+
+项目文档统一在 `_doc/`：
+
+- [`_doc/001_arch/`](_doc/001_arch/) — 架构文档
+  - [`00-overview.md`](_doc/001_arch/00-overview.md)
+  - [`01-module-structure.md`](_doc/001_arch/01-module-structure.md)
+  - [`技术实现.md`](_doc/001_arch/技术实现.md)
+  - [`z-rpc-admin-frontend.md`](_doc/001_arch/z-rpc-admin-frontend.md)
+- [`_doc/002_测试报告.md`](_doc/002_测试报告.md) — 缺陷台账（C/H/M/R/N 全部编号、37 处 `src/main` 改动、跨平台复跑读数）
+- [`_doc/003_script/`](_doc/003_script/) — [`deploy_maven_center.sh`](_doc/003_script/deploy_maven_center.sh) · [`install-settings.sh`](_doc/003_script/install-settings.sh) · [`push.sh`](_doc/003_script/push.sh)
+
+上一版这里链了 11 篇 `docs/ARCHITECTURE.md` 之类的路径，`docs/` 目录不存在，11 条全是死链，已按真实文件替换。
 
 ---
 
 ## 🤝 贡献
 
-欢迎 PR / Issue。
+改 `src/main` 请同步 `_doc/002_测试报告.md` 的台账：报告里每个哈希、行号、计数都要能用同一条命令复算。两条硬约束：**不要 `mvn install`**（会造出与反应堆分叉的构件），**不要用 `-pl` 单模块跑测试**（会从 `~/.m2` 解析到 9 月 13 日的旧构件，产生假红）。
 
 ## 📄 许可证
 
-[Apache License 2.0](LICENSE)
-
-
-## 文档目录
-
-本项目文档统一收口在 `_doc/` 下:
-
-- [`_doc/001_arch/`](_doc/001_arch/) — 架构文档 (项目总览 / 模块结构 / 接口清单 / DB schema / 前端 / 能力 / roadmap):
-  - [`00-overview.md`](_doc/001_arch/00-overview.md)
-  - [`01-module-structure.md`](_doc/001_arch/01-module-structure.md)
-  - [`技术实现.md`](_doc/001_arch/技术实现.md)
-
-- [`_doc/003_script/`](_doc/003_script/) — 运维脚本:
-  - [`deploy_maven_center.sh`](_doc/003_script/deploy_maven_center.sh)
-  - [`install-settings.sh`](_doc/003_script/install-settings.sh)
-  - [`push.sh`](_doc/003_script/push.sh)
-
-各文档详细说明见各子目录。
+[MIT License](LICENSE) — `LICENSE` 文件第一行就是 `MIT License`；上一版底部写的 "Apache License 2.0" 与徽章里的 Apache 是错的。
