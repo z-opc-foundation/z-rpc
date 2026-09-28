@@ -85,11 +85,15 @@
         <!-- 内部依赖版本 -->
         <z-rpc.version>1.0.2</z-rpc.version>
         <util.version>1.0.9</util.version>
-        <netty.version>4.1.66.Final</netty.version>
+        <!-- 2026-09-28「同坐标单版本」：4.1.66.Final → 4.1.138.Final，与 z-boot-dependencies 1.0.18 的
+             netty-bom 同一口径（4.1.138 含 CVE 修复，4.1.x 内二进制兼容）。 -->
+        <netty.version>4.1.138.Final</netty.version>
         <hessian.version>4.0.66</hessian.version>
         <kryo.version>5.5.0</kryo.version>
         <protobuf.version>3.25.5</protobuf.version>
-        <spring-boot.version>2.7.12</spring-boot.version>
+        <!-- 2026-09-28「同坐标单版本」：2.7.12 → 2.7.18（2.7 线最后一版，Java 8 可用），
+             与 z-boot-dependencies 1.0.18 / z-opc 根 pom 同一口径；12→18 含 CVE 修复，纯上行。 -->
+        <spring-boot.version>2.7.18</spring-boot.version>
         <log4j.version>2.17.2</log4j.version>
         <slf4j.version>1.7.36</slf4j.version>
         <junit.version>5.8.2</junit.version>
