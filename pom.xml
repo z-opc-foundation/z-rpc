@@ -343,6 +343,45 @@
                     <generateBackupPoms>false</generateBackupPoms>
                 </configuration>
             </plugin>
+            <!-- ⚠ 这一条必须在本仓自己声明，不能靠 parent 下发：z-boot-parent:1.0.19 的 flatten
+                 声明带 `<inherited>false</inherited>`（它自己要用 resolveCiFriendliesOnly，又不想把
+                 这条声明塞给全组织），于是它从 z-boot 根 pom 继承来的 oss flatten 绑定在传给子级时
+                 被整条掐掉 ⇒ 本仓 effective pom 里 `flatten-maven-plugin` 0 条 plugin 声明（实测
+                 `mvn help:effective-pom` 计数 0、`mvn clean package` 日志 0 次 flatten 执行、
+                 仓内 0 份 .flattened-pom.xml）。后果是发布形状变了：迁前的 z-rpc-1.0.3.pom（repo1）
+                 `<parent>` 计数 0、自包含；这一格不补，下一次发出去的每支 pom 都带着
+                 `z-boot-parent:1.0.19` 这个 parent，消费者第一次解析就依赖 repo1 上那三支 z-boot 件
+                 在不在（z-cache 试点踩过同一条，注释见 z-cache/pom.xml 的 flatten 块）。
+                 常开（不挂 central profile）：挂 profile 时不带 -P 的 `mvn install` 装进本地仓的仍是
+                 带 parent 的 pom。版本钉 1.5.0 与 z-cache 同一口径（门禁机 Maven 3.6.0 实测 1.5.0 rc=0，
+                 1.6.0/1.7.2 报 "requires Maven version 3.6.3"）；flattenMode=oss 剥 <build>/<profiles>，
+                 保留依赖/受管项与 licenses/scm/developers，对外仍是自包含 pom。 -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+                <version>1.5.0</version>
+                <inherited>true</inherited>
+                <configuration>
+                    <updatePomFile>true</updatePomFile>
+                    <flattenMode>oss</flattenMode>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>flatten</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>flatten</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>flatten.clean</id>
+                        <phase>clean</phase>
+                        <goals>
+                            <goal>clean</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 
