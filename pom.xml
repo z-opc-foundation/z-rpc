@@ -20,7 +20,7 @@
 
     <groupId>io.github.yuku123</groupId>
     <artifactId>z-rpc</artifactId>
-    <version>1.0.3</version>
+    <version>1.0.4</version>
     <packaging>pom</packaging>
     <name>z-rpc (RPC Aggregator)</name>
     <description>Z-RPC: A high-performance Java RPC framework integrating Dubbo/SOFA-RPC/gRPC best practices.</description>
