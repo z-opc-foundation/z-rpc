@@ -6,10 +6,10 @@
     <parent>
         <groupId>io.github.yuku123</groupId>
         <artifactId>z-rpc</artifactId>
-        <version>1.0.2</version>
+        <version>1.0.3</version>
     </parent>
     <groupId>io.github.yuku123</groupId>
-    <version>1.0.2</version>
+    <version>1.0.3</version>
 
     <artifactId>z-rpc-mock</artifactId>
     <name>z-rpc-mock</name>

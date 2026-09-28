@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.github.yuku123</groupId>
         <artifactId>z-rpc</artifactId>
-        <version>1.0.2</version>
+        <version>1.0.3</version>
     </parent>
     <artifactId>z-rpc-serialize</artifactId>
     <name>z-rpc-serialize</name>
