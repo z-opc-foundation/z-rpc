@@ -112,15 +112,18 @@
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
         </dependency>
+        <!-- spring-context / spring-beans 的 <version>5.3.27</version> 删掉：spring 家族整族由地板
+             （z-boot-dependencies import 的 spring-framework-bom ${spring-framework.version}=5.3.39）统一说一次。
+             基线里这一族是**同坐标两套版本**（core/jcl 在 z-rpc-core 走 5.3.27、在 starter 走 spring-boot
+             2.7.18 自带的 5.3.31），正是"每个仓自己钉一格"的形状；父链供的是**更高**的同一 5.3 线补丁版，
+             不是静默降版本。Java 8 可用（5.3 线到 5.3.39 都还是 52）。 -->
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-context</artifactId>
-            <version>5.3.27</version>
         </dependency>
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-beans</artifactId>
-            <version>5.3.27</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

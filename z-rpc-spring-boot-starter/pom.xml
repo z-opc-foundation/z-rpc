@@ -49,24 +49,48 @@
             <groupId>io.github.yuku123</groupId>
             <artifactId>z-rpc-core</artifactId>
         </dependency>
+        <!-- 三处 <version> 字面量删掉，改由父链下发，逐格对过面值：
+             spring-boot-autoconfigure / spring-boot-starter 的 2.7.18 = 地板 import 的
+             spring-boot-dependencies 2.7.18（同值）；spring-context 的 5.3.27 → spring 家族整族
+             由地板的 spring-framework-bom 统一（5.3.39，与 z-rpc-core 同一处置，
+             不再让 starter 这边 core 5.3.31、context 5.3.27 两套并存）。 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure</artifactId>
-            <version>2.7.18</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
-            <version>2.7.18</version>
         </dependency>
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-context</artifactId>
-            <version>5.3.27</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- logback-classic / log4j-to-slf4j 从"继承来的 compile 传递格"改成"本模块自己声明的 test 格"，
+             起因是地板的一条策略：z-boot-dependencies:1.0.19 里 `spring-boot-starter-logging` 那条直接条目
+             带 `<exclusions>*:*</exclusions>`（口径"日志只留 log4j2 一族"）⇒ 迁移后它不再带
+             logback-classic / logback-core / jul-to-slf4j / log4j-to-slf4j 四件。
+             本模块 src/main 一处 logback 都没引（现读 0 命中），但 ZRpcAutoConfigurationSelfCheckTest
+             的尺就架在这两件上：它靠 log4j-to-slf4j 把 log4j2 API 接进 slf4j（LogManager.getContext(false)
+             实测返回 org.apache.logging.slf4j.SLF4JLoggerContext），再往 logback 的 LoggerContext 挂 appender
+             读消息（那份注释写明为什么不能挂 log4j-core 的 context）。
+             复原到 **test 域**是本仓现读的最小选择：主码不依赖它们，测试要它们；生产侧跟着地板的口径走
+             （JUL 桥 jul-to-slf4j 不复原：src/main + src/test 现读 0 处 java.util.logging）。
+             版本仍由父链/仓根 DM 下发，与基线逐字同值（logback-classic 1.2.12 经 spring-boot-dependencies
+             2.7.18；log4j-to-slf4j 2.17.2 由本仓根那条直接条目顶住地板的 2.25.4），不新增版本键。 -->
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-to-slf4j</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

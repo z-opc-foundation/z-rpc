@@ -4,8 +4,20 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <!-- z-rpc 自包含 parent — 不依赖 monorepo 内部 parent,
-         改造为 io.github.yuku123 namespace (Maven Central 命名空间) -->
+    <!-- 消费入口统一走 z-boot-parent（1.0.19 起全组织口径，z-cache 试点量出来的那套步骤）：
+         继承第三方地板 z-boot-dependencies（156 条）+ import 兄弟仓权威 z-boot-fleet（163 条）
+         + Java 8 的 pluginManagement。迁移前这里**没有** <parent>（根 pom 自包含，
+         io.github.yuku123:z-rpc:1.0.3 实测在 repo1 上），代价是版本格全靠本仓自己那张 11 键的属性表
+         维护，与 fleet 的 z-rpc 1.0.3、地板的 netty 4.1.138.Final / protobuf-java 3.25.5 /
+         slf4j 1.7.36 逐格重复，抬一格地板要 34 个仓跟着改。
+         relativePath 必须留空：parent 不在磁盘上，在 repo1。 -->
+    <parent>
+        <groupId>io.github.yuku123</groupId>
+        <artifactId>z-boot-parent</artifactId>
+        <version>1.0.19</version>
+        <relativePath/>
+    </parent>
+
     <groupId>io.github.yuku123</groupId>
     <artifactId>z-rpc</artifactId>
     <version>1.0.3</version>
@@ -76,114 +88,134 @@
     </modules>
 
     <properties>
-        <maven.compiler.source>8</maven.compiler.source>
-        <maven.compiler.target>8</maven.compiler.target>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <reversion>1.0.1</reversion>
+        <!-- 删掉的键（parent_preflight 对 z-rpc 的第 2/5 节按**坐标**判过，面值与父链逐字相同 ⇒
+             键与引用它的 <version> 一起删，改由父链下发）：
+               netty.version=4.1.138.Final  → 地板 import io.netty:netty-bom 同值（基线 tree 32 件 io.netty 一件没动）
+               spring-boot.version=2.7.18   → 地板 import spring-boot-dependencies 同值，而且本仓**没有任何一处引用这个键**
+               z-rpc.version=1.0.3          → 自家坐标改钉 ${project.version}（见下面 DM）；fleet 那一格是 repo1 的旧发布件
+               util.version=1.0.13          → 键名是全组织三种命名里的一种（z-util.version / util.version / zutil.version），
+                                              按坐标看 fleet 供 io.github.yuku123:z-util-core 1.0.13 同值 ⇒ 删键删条目
+               protobuf.version=3.25.5      → 地板按坐标供 com.google.protobuf:protobuf-java 3.25.5 同值；
+                                              本仓基线 tree 里**没有** protobuf-java-util（z-vector 有那一格才必须留键），
+                                              所以这里删掉不悬空
+               slf4j.version=1.7.36         → 地板不直接钉 slf4j-api（只在 log4j-to-slf4j 里 exclude 它），
+                                              走它 import 的 spring-boot-dependencies 2.7.18 = 1.7.36 同值
+               maven.compiler.source/target=8、project.build.sourceEncoding=UTF-8 → parent 逐字同值下发
+               reversion=1.0.1              → 全仓 0 处引用的死键，且与仓版本 1.0.3 自相矛盾 -->
+        <!-- ⚠ compile.version 留着：父链没有这一格（它下发的是 maven.compiler.source/target），
+             而下面 maven-compiler-plugin 的 <source>/<target> 用的就是它。删键=当场悬空。 -->
         <compile.version>8</compile.version>
-
-        <!-- 内部依赖版本 -->
-        <z-rpc.version>1.0.3</z-rpc.version>
-        <util.version>1.0.13</util.version>
-        <!-- 2026-09-28「同坐标单版本」：4.1.66.Final → 4.1.138.Final，与 z-boot-dependencies 1.0.18 的
-             netty-bom 同一口径（4.1.138 含 CVE 修复，4.1.x 内二进制兼容）。 -->
-        <netty.version>4.1.138.Final</netty.version>
+        <!-- 序列化两格：地板里 hessian / kryo 各 0 条，父链完全没供给。 -->
         <hessian.version>4.0.66</hessian.version>
         <kryo.version>5.5.0</kryo.version>
-        <protobuf.version>3.25.5</protobuf.version>
-        <!-- 2026-09-28「同坐标单版本」：2.7.12 → 2.7.18（2.7 线最后一版，Java 8 可用），
-             与 z-boot-dependencies 1.0.18 / z-opc 根 pom 同一口径；12→18 含 CVE 修复，纯上行。 -->
-        <spring-boot.version>2.7.18</spring-boot.version>
+        <!-- log4j2 必须留着自钉：地板按坐标把 log4j-api/core/to-slf4j 钉在 **2.25.4**，而本仓基线
+             tree 是 2.17.2（core/remoting/starter 直接引的就是它）。这一格与 z-cache 试点同一口径：
+             不是"随手沿用旧值"，是零漂移——抬 log4j 要连 Java 8 字节码与配置兼容一起验，不在迁移这一刀里顺手做。
+             ⚠ 地板那几条是**直接** DM 条目，本仓的 import（这里没有 import）顶不过继承来的直接条目，
+             所以只能也按坐标逐条写直接条目，见 README 步骤 5。 -->
         <log4j.version>2.17.2</log4j.version>
-        <slf4j.version>1.7.36</slf4j.version>
+        <!-- junit 5.8.2：地板 import 的 junit-bom 是 5.9.3（junit-platform 1.9.3）。换测试框架版本
+             会动到用例的发现与计数，不在迁移里顺手换 ⇒ 按坐标钉住基线。 -->
         <junit.version>5.8.2</junit.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
-            <!-- 内部模块：全部从 com.zifang 迁移到 io.github.yuku123 namespace -->
+            <!-- 自家 15 个 reactor 坐标（聚合 pom + 14 个 jar 模块）钉 ${project.version}。
+                 这一格不是装饰：继承来的 DM 会改写**传递依赖**的版本，而 fleet 里 z-rpc 那一格钉的是
+                 repo1 上的已发布件（现读 <z-rpc.version>1.0.3</z-rpc.version>，14 个 jar 模块）⇒
+                 今天与仓版本同值所以读不出差别，下一次抬到 1.0.4 而不补这 15 格时，仓内构建就会把
+                 **上一个发布件的字节码**当 sibling 编进新包里（z-cache 试点实测踩过：1.3.6 的包里
+                 打进 1.3.5 的 z-cache-common）。
+                 fleet 没有的两格一并补齐口径：`z-rpc` 是聚合 pom（要 type=pom），
+                 `z-rpc-admin` 不在本仓 reactor 里（根 <modules> 已注释掉它，它自己那份 pom 按 repo1
+                 的 z-rpc:1.0.3 解析），所以这里**不**给它钉 ${project.version}。 -->
+            <dependency>
+                <groupId>io.github.yuku123</groupId>
+                <artifactId>z-rpc</artifactId>
+                <version>${project.version}</version>
+                <type>pom</type>
+            </dependency>
             <dependency>
                 <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-common</artifactId>
-                <version>${z-rpc.version}</version>
+                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-spi</artifactId>
-                <version>${z-rpc.version}</version>
+                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-api</artifactId>
-                <version>${z-rpc.version}</version>
+                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-serialize</artifactId>
-                <version>${z-rpc.version}</version>
+                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-protocol</artifactId>
-                <version>${z-rpc.version}</version>
+                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-remoting</artifactId>
-                <version>${z-rpc.version}</version>
+                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-registry</artifactId>
-                <version>${z-rpc.version}</version>
+                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-cluster</artifactId>
-                <version>${z-rpc.version}</version>
+                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-filter</artifactId>
-                <version>${z-rpc.version}</version>
+                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-mock</artifactId>
-                <version>${z-rpc.version}</version>
+                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-metrics</artifactId>
-                <version>${z-rpc.version}</version>
+                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-async</artifactId>
-                <version>${z-rpc.version}</version>
+                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.github.yuku123</groupId>
                 <artifactId>z-rpc-core</artifactId>
-                <version>${z-rpc.version}</version>
+                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.github.yuku123</groupId>
-                <artifactId>z-rpc-admin</artifactId>
-                <version>${z-rpc.version}</version>
+                <artifactId>z-rpc-spring-boot-starter</artifactId>
+                <version>${project.version}</version>
             </dependency>
 
-            <!-- 第三方 -->
-            <dependency>
-                <groupId>io.github.yuku123</groupId>
-                <artifactId>z-util-core</artifactId>
-                <version>${util.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-all</artifactId>
-                <version>${netty.version}</version>
-            </dependency>
+            <!-- 删掉条目、改由父链下发（面值与基线 tree 逐字相同，见上面 properties 那段注释）：
+                 io.netty:netty-all（地板 netty-bom 4.1.138.Final）、
+                 io.github.yuku123:z-util-core（fleet 1.0.13）、
+                 com.google.protobuf:protobuf-java（地板 3.25.5）、
+                 org.slf4j:slf4j-api（地板经 spring-boot-dependencies 2.7.18 给 1.7.36）。 -->
+
+            <!-- 下面每一格都是"父链不供、或供得比基线低"，按坐标写**直接**条目顶住基线。
+                 值来源：基线 dependency:tree（/tmp/zr-tree-head1.log）现算，不是抄的。 -->
+            <!-- hessian / kryo：地板与 fleet 里 hessian 0 条、kryo 0 条。 -->
             <dependency>
                 <groupId>com.caucho</groupId>
                 <artifactId>hessian</artifactId>
@@ -194,11 +226,19 @@
                 <artifactId>kryo</artifactId>
                 <version>${kryo.version}</version>
             </dependency>
+            <!-- objenesis：kryo 5.5.0 要 3.3，而地板直接钉的是 2.6（更低）⇒ 不顶住就是静默降大版本。
+                 reflectasm 那格不用管：地板 1.11.9 与基线同值。 -->
             <dependency>
-                <groupId>com.google.protobuf</groupId>
-                <artifactId>protobuf-java</artifactId>
-                <version>${protobuf.version}</version>
+                <groupId>org.objenesis</groupId>
+                <artifactId>objenesis</artifactId>
+                <version>3.3</version>
             </dependency>
+            <!-- log4j-api / log4j-core 是基线里的直接依赖（2.17.2），地板按坐标钉的是 **2.25.4** ⇒ 逐坐标写直接条目顶住。
+                 log4j-to-slf4j 同样留着：基线里它是 spring-boot-starter-logging 带来的传递格（2.17.2），
+                 而地板把 spring-boot-starter-logging 的 children 整批 exclude（`*:*`）⇒ 迁移后这一格与
+                 jul-to-slf4j 一起从 starter 的 compile 图里消失（见 z-rpc-spring-boot-starter 里那条
+                 logback-classic 的注释）。条目留着是把"它再出现时仍钉 2.17.2"写死，不是漏删。
+                 log4j-jul / log4j-slf4j-impl 本仓 tree 里没有，不写。 -->
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-api</artifactId>
@@ -210,14 +250,64 @@
                 <version>${log4j.version}</version>
             </dependency>
             <dependency>
-                <groupId>org.slf4j</groupId>
-                <artifactId>slf4j-api</artifactId>
-                <version>${slf4j.version}</version>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-to-slf4j</artifactId>
+                <version>${log4j.version}</version>
             </dependency>
+            <!-- jackson 四格：基线是 z-util-core 传递来的 2.18.9，地板 jackson-bom 是 2.18.6（更低）⇒ 顶住不掉。
+                 这一族最终该由地板统一决定，本仓先在迁移里保住零漂移（与 z-cache 的 snakeyaml 同一处置）。 -->
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-annotations</artifactId>
+                <version>2.18.9</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-core</artifactId>
+                <version>2.18.9</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-databind</artifactId>
+                <version>2.18.9</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.datatype</groupId>
+                <artifactId>jackson-datatype-jsr310</artifactId>
+                <version>2.18.9</version>
+            </dependency>
+            <!-- junit 六格：地板 junit-bom 5.9.3 会把 api/engine/params 与 platform 一并抬走，
+                 换测试框架版本会动用例发现与计数 ⇒ 钉住基线（5.8.2 配的 platform 是 1.8.2）。
+                 opentest4j/apiguardian 父链 0 条，跟着 junit-jupiter-api 5.8.2 走原值。 -->
             <dependency>
                 <groupId>org.junit.jupiter</groupId>
                 <artifactId>junit-jupiter</artifactId>
                 <version>${junit.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.junit.jupiter</groupId>
+                <artifactId>junit-jupiter-api</artifactId>
+                <version>${junit.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.junit.jupiter</groupId>
+                <artifactId>junit-jupiter-engine</artifactId>
+                <version>${junit.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.junit.jupiter</groupId>
+                <artifactId>junit-jupiter-params</artifactId>
+                <version>${junit.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.junit.platform</groupId>
+                <artifactId>junit-platform-commons</artifactId>
+                <version>1.8.2</version>
+            </dependency>
+            <dependency>
+                <groupId>org.junit.platform</groupId>
+                <artifactId>junit-platform-engine</artifactId>
+                <version>1.8.2</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
