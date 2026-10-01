@@ -58,10 +58,5 @@
             <groupId>io.github.yuku123</groupId>
             <artifactId>z-util-core</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
     </dependencies>
 </project>

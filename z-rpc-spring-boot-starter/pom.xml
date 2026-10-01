@@ -66,11 +66,6 @@
             <groupId>org.springframework</groupId>
             <artifactId>spring-context</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
         <!-- logback-classic / log4j-to-slf4j 从"继承来的 compile 传递格"改成"本模块自己声明的 test 格"，
              起因是地板的一条策略：z-boot-dependencies:1.0.19 里 `spring-boot-starter-logging` 那条直接条目
              带 `<exclusions>*:*</exclusions>`（口径"日志只留 log4j2 一族"）⇒ 迁移后它不再带
