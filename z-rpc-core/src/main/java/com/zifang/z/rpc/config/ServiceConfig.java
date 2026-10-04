@@ -118,6 +118,16 @@ public class ServiceConfig<T> {
      */
     private RegistryService registryService;
 
+    /**
+     * 最近一次注册失败的记录；未失败过为 null。
+     *
+     * <p>注册失败只写日志时，调用方看到的是 {@code export()} 正常返回、
+     * {@code isExported()} 为 true —— 服务能连直连地址，但服务发现完全没生效，
+     * 且进程里没有任何一格能回答"注册到底成没成"。
+     * 这里把失败连同原因存下来，供 {@link #getLastRegistrationFailure()} 查询。
+     */
+    private volatile String lastRegistrationFailure;
+
     // ========== 公共方法 ==========
 
     /**
@@ -294,15 +304,25 @@ public class ServiceConfig<T> {
             return;
         }
 
+        // registryService 没有自初始化路径（ZConfigRegistry 适配仍是注释状态），
+        // 只有外部显式 setRegistryService 才会有值。没注入就往下走必然 NPE，
+        // 而 NPE 会被下面的 catch 吞掉、只留一行日志 —— 事先判掉，让失败有确切原因。
+        if (registryService == null) {
+            lastRegistrationFailure = "RegistryService is not configured for " + registry;
+            log.error("Failed to register service to registry: {} ({})",
+                    registry, lastRegistrationFailure);
+            return;
+        }
+
         try {
-            // ZConfigRegistry 暂时禁用 (依赖 z-config-* 未发布,后续 Central 上架后再加)
-            // registryService = new com.zifang.z.rpc.registry.ZConfigRegistry(registry);
-            log.warn("ZConfigRegistry 适配暂时禁用,仅保留直连模式");
             registryService.register(serviceUrl);
+            lastRegistrationFailure = null;
             log.info("Service registered to registry: {}", registry);
         } catch (Exception e) {
+            // 注册失败不影响服务启动，只是没有服务发现能力；
+            // 但"不影响启动"不等于"调用方可以不知道" —— 记下来供 getLastRegistrationFailure() 查。
+            lastRegistrationFailure = e.getClass().getName() + ": " + e.getMessage();
             log.error("Failed to register service to registry: {}", registry, e);
-            // 注册失败不影响服务启动，只是没有服务发现能力
         }
     }
 
@@ -477,5 +497,15 @@ public class ServiceConfig<T> {
 
     public void setRegistryService(RegistryService registryService) {
         this.registryService = registryService;
+    }
+
+    /**
+     * 最近一次注册失败的描述；从未失败过（或配置了 registry 且注册成功）为 null。
+     *
+     * <p>没有这一格时，注册失败只存在于日志里：{@code export()} 正常返回、
+     * {@code isExported()} 为 true，调用方无从判断服务发现到底生效没有。
+     */
+    public String getLastRegistrationFailure() {
+        return lastRegistrationFailure;
     }
 }

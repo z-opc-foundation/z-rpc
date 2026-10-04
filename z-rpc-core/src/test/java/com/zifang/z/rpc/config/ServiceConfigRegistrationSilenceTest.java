@@ -99,7 +99,6 @@ class ServiceConfigRegistrationSilenceTest {
     private static final String FAILURE_PREFIX = "Failed to register service to registry: ";
     private static final String SUCCESS_PREFIX = "Service registered to registry: ";
     private static final String EXPORTED_PREFIX = "Exported service: ";
-    private static final String DISABLED_WARN = "ZConfigRegistry";
 
     /** port 0 让内核自己分配，避开 freePort() 那种 probe-then-bind race。 */
     private static ServiceConfig<Echo> config(RegistryService registryService) {
@@ -269,18 +268,23 @@ class ServiceConfigRegistrationSilenceTest {
                 assertTrue(errors.get(0).startsWith(FAILURE_PREFIX + REGISTRY),
                         "ERROR 行不是预期的那句：" + errors.get(0));
 
-                Throwable thrown = cap.thrown(ServiceConfig.class, Level.ERROR);
-                assertNotNull(thrown);
-                // 只断言类型不断言消息文本：JDK 14+ 的 helpful NPE 消息在 JDK 8 上不存在，
-                // 250 那台是 1.8.0_362，把消息串写进断言会造出一台机器上的假红。
-                assertTrue(thrown instanceof NullPointerException,
-                        "被吞掉的异常实测是 " + thrown.getClass().getName() + "，不是空指针就说明病灶换了");
+                // 原来这一带是靠"空 registryService 被解引用、抛 NPE、再被 catch 吞掉"走完的。
+                // 现在事先判空，不再制造那个 NPE —— 失败原因直接进 ERROR 行与可查字段。
+                // 真正抛异常的分支由 throwingRegistry 那条用例覆盖。
+                assertTrue(errors.get(0).contains("RegistryService is not configured"),
+                        "ERROR 行没说明真实原因（少了事先判空）：" + errors.get(0));
 
                 assertFalse(containsPrefix(seen, SUCCESS_PREFIX),
                         "注册根本没成功，成功行却在场：" + seen);
 
                 assertTrue(cfg.isExported(), "调用方看到的旗子是绿的");
                 assertNull(cfg.getRegistryService());
+
+                // 失败现在有了对外位点：不再只存在于日志里。
+                String failure = cfg.getLastRegistrationFailure();
+                assertNotNull(failure, "注册炸了却没有留下可查的失败描述，调用方依然无从判断");
+                assertTrue(failure.contains("RegistryService"),
+                        "失败原因应当说明是 RegistryService 没注入，而不是别的： " + failure);
             } finally {
                 cfg.unexport();
             }
@@ -320,15 +324,20 @@ class ServiceConfigRegistrationSilenceTest {
                 assertNull(cfg.getRegistryService());
                 assertEquals(REGISTRY, cfg.getRegistry());
 
+                // 修复后：失败有了位点。这两条断言从"必须为空"翻成"必须读得到"，
+                // 原来的主张（没有位点）正是它们钉住的缺陷。
                 List<String> fields = names(ServiceConfig.class.getDeclaredFields());
                 assertFalse(fields.isEmpty(), "字段清单本身为空的话下面两条断言都是空跑");
-                assertEquals(Collections.emptyList(), matching(fields, failureSurface),
-                        "ServiceConfig 的字段里出现了记账用的名字，这条主张要改：" + fields);
+                assertFalse(matching(fields, failureSurface).isEmpty(),
+                        "ServiceConfig 的字段里读不到记账用的名字，失败又没有落点：" + fields);
 
                 List<String> methods = methodNames(ServiceConfig.class.getDeclaredMethods());
                 assertFalse(methods.isEmpty());
-                assertEquals(Collections.emptyList(), matching(methods, failureSurface),
-                        "ServiceConfig 的方法里出现了能问失败的名字：" + methods);
+                assertFalse(matching(methods, failureSurface).isEmpty(),
+                        "ServiceConfig 的方法里读不到能问失败的名字：" + methods);
+
+                assertNotNull(cfg.getLastRegistrationFailure(),
+                        "位点在签名上但读不出内容，说明记账那一步漏了");
             } finally {
                 cfg.unexport();
             }
@@ -344,8 +353,8 @@ class ServiceConfigRegistrationSilenceTest {
     }
 
     @Test
-    @DisplayName("bug_disabledWarningIsPrintedEvenWhenRegistrationSucceeds：『适配暂时禁用』和『已注册』同一批输出")
-    void bug_disabledWarningIsPrintedEvenWhenRegistrationSucceeds() {
+    @DisplayName("fix_registrationOutcomeIsUnambiguous：注入可用时只有『已注册』，没有自相矛盾的『适配禁用』")
+    void fix_registrationOutcomeIsUnambiguous() {
         Capturer cap = Capturer.open();
         try {
             CountingRegistry spy = new CountingRegistry();
@@ -353,21 +362,29 @@ class ServiceConfigRegistrationSilenceTest {
             wired.export();
             try {
                 assertEquals(1, spy.registerCalls.get(), "注册真的成功了，这条主张才有意义");
-                List<String> warns = cap.messages(ServiceConfig.class, Level.WARN);
-                assertEquals(1, warns.size(), "WARN 行数：" + warns);
-                assertTrue(warns.get(0).contains(DISABLED_WARN), warns.get(0));
+                // 原来无论成败都会打「ZConfigRegistry 适配暂时禁用」，紧接着又打
+                // 「已注册」—— 两句自相矛盾，日志读起来像坏了。这里注册既已发生，
+                // 就不该再宣称适配被禁用。
+                assertEquals(Collections.emptyList(), cap.messages(ServiceConfig.class, Level.WARN),
+                        "注册成功时不该再打印『适配暂时禁用』这种与事实相反的警告");
                 assertTrue(containsPrefix(cap.messages(ServiceConfig.class, Level.INFO), SUCCESS_PREFIX),
-                        "成功行不在场说明这条对照没走到，『警告与成功矛盾』的主张没被量到");
+                        "成功行不在场说明这条对照没走到");
+                assertNull(wired.getLastRegistrationFailure(),
+                        "注册成功却留着失败描述，说明记账那一步没在成功分支清干净");
             } finally {
                 wired.unexport();
             }
 
-            // 生产形状里同一句 WARN 也在场：它的位置在 try 的第一句，与注册成败无关
+            // 失败那侧同样不该有「已注册」，且失败原因可查
             cap.reset();
             ServiceConfig<Echo> cfg = config(null);
             cfg.export();
             try {
-                assertEquals(1, cap.messages(ServiceConfig.class, Level.WARN).size());
+                assertEquals(Collections.emptyList(), cap.messages(ServiceConfig.class, Level.WARN),
+                        "失败侧也不该打印『适配禁用』，失败有自己的 ERROR 行");
+                assertFalse(containsPrefix(cap.allMessages(ServiceConfig.class), SUCCESS_PREFIX),
+                        "注册没发生却打了成功行");
+                assertNotNull(cfg.getLastRegistrationFailure());
             } finally {
                 cfg.unexport();
             }
@@ -404,6 +421,57 @@ class ServiceConfigRegistrationSilenceTest {
             assertEquals(1, spy.unregisterCalls.get(),
                     "unregister 一次都没被调用，上面那条『守卫把整块跳过』就不是在量守卫");
             assertNotNull(spy.lastUnregistered);
+        } finally {
+            cap.close();
+        }
+    }
+
+    @Test
+    @DisplayName("fix_registrationThatThrowsIsRecordedWithItsCause：注册真炸了，原因也进得了格")
+    void fix_registrationThatThrowsIsRecordedWithItsCause() {
+        Capturer cap = Capturer.open();
+        try {
+            ServiceConfig<Echo> cfg = config(new RegistryService() {
+                @Override
+                public void register(URL url) {
+                    throw new IllegalStateException("registry unreachable");
+                }
+
+                @Override
+                public void unregister(URL url) {
+                }
+
+                @Override
+                public void subscribe(URL url, NotifyListener listener) {
+                }
+
+                @Override
+                public void unsubscribe(URL url, NotifyListener listener) {
+                }
+
+                @Override
+                public java.util.List<URL> lookup(URL url) {
+                    return java.util.Collections.emptyList();
+                }
+
+                @Override
+                public void destroy() {
+                }
+            });
+            cfg.export();
+            try {
+                String failure = cfg.getLastRegistrationFailure();
+                assertNotNull(failure, "注册抛了异常却没有记下来，调用方仍然无从判断");
+                assertTrue(failure.contains("IllegalStateException")
+                                && failure.contains("registry unreachable"),
+                        "失败描述里没有异常类型/原因：" + failure);
+                assertFalse(containsPrefix(cap.allMessages(ServiceConfig.class), SUCCESS_PREFIX),
+                        "注册抛异常却打了成功行");
+                // 服务本身仍应可用：注册失败不阻断导出
+                assertTrue(cfg.isExported());
+            } finally {
+                cfg.unexport();
+            }
         } finally {
             cap.close();
         }
