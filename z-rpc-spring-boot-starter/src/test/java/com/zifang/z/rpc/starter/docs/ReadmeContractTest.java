@@ -127,12 +127,20 @@ class ReadmeContractTest {
                 continue;
             }
             String[] cols = ln.split("\\|");
-            if (cols.length < 4) {
+            // 模块表是 4 列：模块 | 在 reactor | 已上 Central | 里面真实存在的东西。
+            // 注意 Java 的 String.split 会**丢掉尾部空串**，行尾那个 `|` 不计入，
+            // 所以 4 列拿到的是 5 段（cols[4] 即描述列），不是 6 段。
+            // 描述列此前被直接丢掉，于是 moduleRowCell / phantomClassNames 取到的
+            // row[2] 是「❌ 404」那一格 —— 端口明明写在同一行，却报「没写实测端口」。
+            if (cols.length < 5) {
                 continue;
             }
             String name = cols[1].trim().replace("`", "");
+            // 两张表都以 "| `z-rpc-" 开头，靠 MODULE_NAME 区分：端口表那几行的名字带
+            // 「（不在 reactor）」这类中文旁注，正则匹配不上，自然被排除。
+            // 不要为了"统一"去剥旁注 —— 那会把端口表混进模块表，行数与目录数就对不上了。
             if (MODULE_NAME.matcher(name).matches()) {
-                rows.add(new String[] {name, cols[2].trim(), cols[3].trim()});
+                rows.add(new String[] {name, cols[2].trim(), cols[3].trim(), cols[4].trim()});
             }
         }
         return rows;
@@ -230,7 +238,11 @@ class ReadmeContractTest {
         assertEquals(Collections.<String>emptyList(), missing,
                 "模块表把仓里不存在的类说成「模块里真实存在的东西」");
 
-        List<String> caught = phantomClassNames("| `z-rpc-common` | ✅ | `URL` / `NoSuchClassRhyme` |\n", root);
+        // 夹具按真实模块表的 4 列写（模块 | reactor | Central | 里面真实存在的东西）。
+        // 此前它是 3 列，而解析器的门槛已提到 5 段（4 列），这一行会被直接跳过 ——
+        // 谓词于是在空输入上转完、caught 恒为空，阳性对照自己失效了却报"放行没有意义"。
+        List<String> caught = phantomClassNames(
+                "| `z-rpc-common` | ✅ | ✅ 1.0.4 | `URL` / `NoSuchClassRhyme` |\n", root);
         assertEquals(1, caught.size(), "谓词抓不到捏造类名，上面对 README 的放行没有意义");
         assertTrue(caught.get(0).contains("NoSuchClassRhyme"), caught.toString());
     }
@@ -239,8 +251,11 @@ class ReadmeContractTest {
     private static List<String> phantomClassNames(String readme, File root) {
         List<String> out = new ArrayList<String>();
         for (String[] row : moduleTableRows(readme)) {
-            String col3 = row[2].replaceAll("（[^）]*）", "");
-            Matcher m = Pattern.compile("`@?([A-Z][A-Za-z0-9_]*)`").matcher(col3);
+            // 类名写在描述列（第 4 格），此前取 row[2]（Central 列）——
+            // 那一列只有 ✅/❌ 与版本号，永远扫不出任何类名，
+            // 于是这把尺对着一堆空字符串转完，「幻觉类名」一条都抓不到（恒为真）。
+            String description = row[3].replaceAll("（[^）]*）", "");
+            Matcher m = Pattern.compile("`@?([A-Z][A-Za-z0-9_]*)`").matcher(description);
             File src = new File(new File(root, row[0]), "src/main/java");
             while (m.find()) {
                 if (!hasSourceFileFor(src, m.group(1))) {
@@ -271,15 +286,21 @@ class ReadmeContractTest {
 
     // ---------------------------------------------------------------- R3 SPI 表
 
+    // SPI 表是 5 列：接口 | 所在模块 | 清单路径 | 注册数 | key 列表。
+    // 原正则只吃 4 个组（末组用 .* 一把吞掉「注册数 | key 列表」），
+    // 于是 group(3) 拿到的是**路径**、group(4) 拿到的是「数+keys」拼在一起 ——
+    // 对 group(3) 做 replaceAll("[^0-9]") 得到空串，Integer.parseInt 直接抛
+    // NumberFormatException: For input string: ""，用例以 error 而不是 failure 结束。
     private static final Pattern SPI_ROW = Pattern.compile(
-            "^\\| `(com\\.zifang\\.z\\.rpc\\.[A-Za-z0-9_.]+)` \\|([^|]*)\\|([^|]*)\\|(.*)\\|$");
+            "^\\| `(com\\.zifang\\.z\\.rpc\\.[A-Za-z0-9_.]+)` \\|([^|]*)\\|([^|]*)\\|([^|]*)\\|([^|]*)\\|$");
 
     private static List<String[]> spiTableRows(String readme) {
         List<String[]> rows = new ArrayList<String[]>();
         for (String ln : linesOf(readme)) {
             Matcher m = SPI_ROW.matcher(ln);
             if (m.matches()) {
-                rows.add(new String[] {m.group(1), m.group(3).trim(), m.group(4).trim()});
+                // 1=FQN 2=模块 3=清单路径 4=注册数 5=key 列表
+                rows.add(new String[] {m.group(1), m.group(4).trim(), m.group(5).trim()});
             }
         }
         return rows;
@@ -572,10 +593,14 @@ class ReadmeContractTest {
     @DisplayName("README 点名「不是 ZRpcProperties 字段」的那串 key，确实一个都解析不出来")
     void keysReadmeCallsDeadAreActuallyDead() throws IOException {
         String r = readme();
-        int from = r.indexOf("上一版 README 这里的");
+        // 开头锚点：那句「上一版 README …」被润色过（「这里的」→「列过的」），
+        // 死 key 清单本身一个字没少。正则只认「上一版 README」这半句，
+        // 后面跟着什么都行 —— 量的是清单里那些 key 解析不解析得出来，不是量措辞。
+        java.util.regex.Matcher openAnchor = Pattern.compile("上一版\\s*README").matcher(r);
+        assertTrue(openAnchor.find(), "README 少了那句死 key 清单的开头标记");
+        int from = openAnchor.start();
         int to = r.indexOf("都不是 `ZRpcProperties` 的字段");
-        assertTrue(from >= 0 && to > from,
-                "README 少了那句死 key 清单：这条用例的对照面没了");
+        assertTrue(to > from, "死 key 清单的结尾标记不见了或跑到开头之前");
 
         List<String> checked = new ArrayList<String>();
         List<String> alive = new ArrayList<String>();
@@ -693,9 +718,15 @@ class ReadmeContractTest {
         assertTrue(admin > 0 && vite > 0, "端口读取本身失败了：admin=" + admin + " vite=" + vite);
 
         // 端口要落在"讲这个模块的那一行"上，全文别处出现过一次不算数（变异取证：把模块表那行改成
-        // 监听 9090，只要正文还有一处写着 19090，全局 contains 就永远绿）
-        String adminCell = moduleRowCell(r, "z-rpc-admin");
-        String viteCell = moduleRowCell(r, "z-rpc-admin-frontend");
+        // 监听 9090，只要正文还有一处写着 19090，全局 contains 就永远绿）。
+        //
+        // z-rpc-admin / z-rpc-admin-frontend 都不在 reactor，只出现在上面那张「应用 / 端口」表里，
+        // 而 moduleRowCell 走的是模块表（MODULE_NAME 会把带「（不在 reactor）」旁注的端口表行排除）。
+        // 此前这里调 moduleRowCell ⇒ 报「模块表里没有 z-rpc-admin 这一行」；
+        // 更早一版它恰好命中了同名行、却取到「❌ 404」那一格，于是报
+        // 「没写实测端口 19090：❌ 404」—— 端口明明就在同一行的第 2 格。
+        String adminCell = portTableCell(r, "z-rpc-admin");
+        String viteCell = portTableCell(r, "z-rpc-admin-frontend");
         assertTrue(carriesPort(adminCell, admin), "模块表里 z-rpc-admin 那行没写实测端口 " + admin + "：" + adminCell);
         assertTrue(carriesPort(viteCell, vite), "模块表里 z-rpc-admin-frontend 那行没写实测端口 " + vite + "：" + viteCell);
         assertTrue(r.contains("**" + admin + "**"), "README 正文没把 admin 端口写成 **" + admin + "**");
@@ -718,9 +749,16 @@ class ReadmeContractTest {
             String body = text(yml);
             int http = firstPort(yml);
             allowed.add(String.valueOf(http));
-            String row = "| `z-rpc-examples/" + ex[0] + "` | " + http + " | ";
-            assertTrue(r.contains(row), ex[0] + "：HTTP 端口实测 " + http + "，README 的示例表对不上");
-            String rest = r.substring(r.indexOf(row) + row.length());
+            // 端口表那几行的模块名后面带旁注（`z-rpc-examples/user-service`（不在 reactor）），
+            // 直接拼 "名 + 空格 + 端口" 匹配不上 —— 端口在旁注之后。
+            // 这里不拼字符串，改为按行首定位再按格取，与 portTableCell 同一口径。
+            String row0 = portTableCell(r, "z-rpc-examples/" + ex[0]);
+            String rest0 = row0.substring(row0.indexOf('|', 1) + 1);
+            String httpCell = rest0.substring(0, rest0.indexOf('|')).trim();
+            assertEquals(String.valueOf(http), httpCell,
+                    ex[0] + "：HTTP 端口实测 " + http + "，README 的示例表对不上");
+            // 从 httpCell 之后**再跳一格**（跳掉 httpCell 尾部那个分隔符本身）。
+            String rest = rest0.substring(rest0.indexOf('|') + 1);
             String rpcCell = rest.substring(0, rest.indexOf('|')).trim();
             if (rpcCell.matches("\\d+.*")) {
                 int rpc = Integer.parseInt(rpcCell.replaceAll("[^0-9].*$", ""));
@@ -913,10 +951,29 @@ class ReadmeContractTest {
     private static String moduleRowCell(String readme, String moduleName) {
         for (String[] row : moduleTableRows(readme)) {
             if (row[0].equals(moduleName)) {
-                return row[2];
+                // 第 4 格（描述列）才是"这一行讲了什么"，端口/产物都在那儿；
+                // row[2] 是「已上 Central」那一列。
+                return row[3];
             }
         }
         throw new AssertionError("README 的模块表里没有 " + moduleName + " 这一行");
+    }
+
+    /**
+     * 「应用 / 端口」表里某一行（表头 {@code | 应用 | HTTP server.port | ...}）的整行正文。
+     *
+     * <p>与 {@link #moduleTableRows} 分开取：两张表都以 {@code | \`z-rpc-} 开头，
+     * 而 MODULE_NAME 恰好把端口表那几行排除掉（名字带「（不在 reactor）」旁注）。
+     * 这里按 {@code `name` 前缀} 匹配并返回**整行**，端口落在哪一格都能被
+     * carriesPort 读到，不必猜列号。
+     */
+    private static String portTableCell(String readme, String moduleName) {
+        for (String ln : linesOf(readme)) {
+            if (ln.startsWith("| `" + moduleName + "`")) {
+                return ln;
+            }
+        }
+        throw new AssertionError("README 的端口表里没有 " + moduleName + " 这一行");
     }
 
     @Test
