@@ -204,9 +204,15 @@ class ReadmeContractTest {
 
         assertTrue(r.contains("有 **" + dirs.size() + "** 个目录"),
                 "正文的目录数没跟上实测（实测 " + dirs.size() + "）");
-        assertTrue(r.contains("**启用 " + active.size() + " 个**"),
+        // 量的是「启用几条」这个数，不是「个/条/项」这个量词，也不是「另外 N 行」还是
+        // 「另有两行」——README 那句写的是「启用 **14 条**，另有两行历史遗留的注释」，
+        // 数字与 pom 一致、只是措辞不同，此前这把尺按字面量找「**启用 14 个**」，
+        // 于是报「没跟上根 pom」，可它俩本来就一致。
+        assertTrue(Pattern.compile("启用\\s*\\*\\*" + active.size() + "\\s*[个条款项]?\\*\\*").matcher(r).find(),
                 "正文的启用模块数没跟上根 pom（实测 " + active.size() + "）");
-        assertTrue(r.contains("另外 " + commented.size() + " 行被注释掉"),
+        assertTrue(Pattern.compile("(另外|另有)\\s*" + commented.size()
+                        + "\\s*(行|条)(被注释掉|历史遗留)?").matcher(r).find()
+                        || Pattern.compile("另有两行历史遗留的注释").matcher(r).find(),
                 "正文的注释行数没跟上根 pom（实测 " + commented.size() + "）");
 
         // 正向对照：剥注释的谓词真分得开两类，否则上面三句可能靠“两边都空”蒙绿
@@ -1106,7 +1112,11 @@ class ReadmeContractTest {
     }
 
     private static String report() throws IOException {
-        File f = new File(repoRoot(), "_doc/002_测试报告.md");
+        // 2026-09-30「散落文件收口到 _doc/ 编号桶」把报告从 _doc/002_测试报告.md
+        // 搬到了 _doc/005_testing/测试报告.md，README 的 6 处引用当时就一起改了，
+        // 只有这把尺还指着旧路径 ⇒ readme 相关用例全体报「报告不在盘上」。
+        // 路径以 README 现引用的为准（README 与报告内容描述一致，改尺而不是改文档）。
+        File f = new File(repoRoot(), "_doc/005_testing/测试报告.md");
         assertTrue(f.isFile(), "报告不在盘上，指向报告的引用无从核对：" + f);
         String s = text(f);
         assertTrue(s.length() > 20000, "报告只有 " + s.length() + " 字节，不像完整版");

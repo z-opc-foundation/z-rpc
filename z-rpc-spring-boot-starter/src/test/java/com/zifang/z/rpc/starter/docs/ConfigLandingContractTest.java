@@ -48,9 +48,17 @@ class ConfigLandingContractTest {
     private static final Pattern CONFIG_ROW = Pattern.compile(
             "^\\| `(z\\.rpc\\.[A-Za-z0-9.]+)` \\| (\\w+) \\| (\\S+) \\| ([^|]+) \\|$");
 
-    /** README 标题里那个 key 总数。 */
+    /**
+     * README 标题里那个 key 总数。
+     *
+     * <p>容忍标题层级与前缀：README 通篇是 {@code ## <emoji> 标题}（见「🔧 技术栈」
+     * 「📡 协议与帧格式」等同款写法），本节此前被提升成 h2 并加了 🔍，
+     * 而这把尺写死了旧的 {@code ### 配置项} 且不含 emoji，于是永远 find 不到 ——
+     * 报「key 总数被改掉了」，可总数 33 一个字都没动。
+     * 数的是 {@code (\d+)}，标题怎么排版不该影响它。
+     */
     private static final Pattern CONFIG_HEADING_COUNT = Pattern.compile(
-            "### 配置项到底哪些有落点（(\\d+) 个 key");
+            "^#{2,4}[^\\n]*?配置项到底哪些有落点（(\\d+) 个 key", Pattern.MULTILINE);
 
     private static final Pattern ANNOTATION_ROW = Pattern.compile(
             "^\\| `(@[A-Za-z]+)` \\| (\\d+) \\| ([^|]+) \\| ([^|]+) \\|$");

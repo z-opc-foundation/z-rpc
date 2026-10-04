@@ -82,8 +82,11 @@
         <!-- 示例与控制台 -->
         <!-- 临时排除 z-rpc-examples（依赖 z-rpc-core 同 monorepo 内部，Central 发布时无需 demo） -->
         <!-- <module>z-rpc-examples</module> -->
-        <!-- 临时排除 z-rpc-admin / z-rpc-registry（依赖未发布的 z-config-*，等 z-config 上 Central 后再加） -->
-        <!-- <module>z-rpc-registry</module> -->
+        <!-- z-rpc-registry 已在上面「治理层」启用（InMemoryRpcRegistry 已落地并有测试覆盖），
+             此前这里还留着一行把它注释掉的 <module>，与上面的启用自相矛盾 ——
+             注释说「依赖未发布的 z-config-*」，但它现在只用 JDK + 测试夹具，不依赖 z-config。
+             留着会让「哪些模块在 reactor 里」这件事有两个答案。 -->
+        <!-- 临时排除 z-rpc-admin（依赖未发布的 z-config-*，等 z-config 上 Central 后再加） -->
         <!-- <module>z-rpc-admin</module> -->
     </modules>
 
