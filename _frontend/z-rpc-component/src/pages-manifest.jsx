@@ -1,5 +1,7 @@
 import { ClusterOutlined, HomeOutlined, NodeIndexOutlined } from '@ant-design/icons'
 import ServiceTable from './pages/ServiceTable'
+import InstanceTable from './pages/InstanceTable'
+import RpcApp from './pages/RpcApp.jsx'
 
 
 export {default as ServiceTable} from './pages/ServiceTable'
@@ -16,6 +18,8 @@ export const menuItems = [
 export const routes = [
     { path: '/z-rpc/home', Component: HomePage },
     { path: '/z-rpc/services', Component: ServiceTable },
+    { path: '/z-rpc/instances', Component: InstanceTable },
+    { path: '/z-rpc/:rest*', Component: RpcApp },
 ]
 
 export { default as HomePage } from './pages/HomePage'
