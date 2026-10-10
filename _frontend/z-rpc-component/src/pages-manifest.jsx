@@ -13,7 +13,7 @@ export const menuItems = [
     { key: '/z-rpc/services', label: '服务注册表', icon: <ClusterOutlined /> },
 ]
 
-export const routeTable = [
+export const routes = [
     { path: '/z-rpc/home', Component: HomePage },
     { path: '/z-rpc/services', Component: ServiceTable },
 ]
