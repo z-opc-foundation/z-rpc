@@ -2,7 +2,7 @@ import {useEffect, useState} from 'react'
 import {Alert, Badge, Button, Card, Input, Table, Tag} from 'antd'
 import {SearchOutlined} from '@ant-design/icons'
 import {flattenInstances, parseClusterMap, rpcApi} from '../services/api'
-import {EmptyState, PageHeader} from '@/common/components/ui'
+import {EmptyState, PageHeader} from '@yuku123/z-frontend-common/ui'
 import {useSearchParams} from 'react-router-dom'
 
 export default function InstanceTable() {
