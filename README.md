@@ -77,7 +77,7 @@
 
 ```
 z-rpc/
-├── pom.xml                          # 聚合 pom：parent=z-boot-parent:1.0.21、version=1.0.4、flatten 常开
+├── pom.xml                          # 聚合 pom：parent=z-boot-parent:1.1.0、version=1.0.4、flatten 常开
 ├── z-rpc-common/                    # URL / Node / RpcException / RpcConstants / ProtocolConstants（Result 在 z-rpc-api）
 ├── z-rpc-spi/                       # @SPI / @Adaptive / @Activate / ExtensionLoader / ExtensionFactory（+ 两个 factory 实现）
 ├── z-rpc-api/                       # Invoker / Invocation / RpcInvocation / Result / Filter / Protocol / ProxyFactory 接口 + JdkProxyFactory + Exporter + Listener
@@ -140,7 +140,7 @@ z-rpc/
 | 层级 | 技术 | 版本来源 |
 |------|------|----------|
 | 语言 / 运行时 | Java 8 | 根 pom `<compile.version>8</compile.version>` + `maven-compiler-plugin:3.8.0`（父链下发的是 `maven.compiler.source/target`，本仓这一格不删） |
-| 框架 | Spring Boot 2.7.18 | 由 `z-boot-parent` → `z-boot-dependencies` 供；`z-rpc-spring-boot-starter` 与 `z-rpc-admin` 里字面写 `2.7.18` |
+| 框架 | Spring Boot 2.7.18 | 由 `z-boot-parent` 自带地板供；`z-rpc-spring-boot-starter` 与 `z-rpc-admin` 里字面写 `2.7.18` |
 | 网络层 | Netty 4.1.138.Final | 由地板 import 的 `io.netty:netty-bom` 供；`z-rpc-remoting` 直引 `netty-all` |
 | 序列化 | Hessian 4.0.66 · Kryo 5.5.0（+ `objenesis` 顶到 3.3）· protobuf-java 3.25.5 · Jackson 2.18.9 | `hessian` / `kryo` 本仓自钉（地板 0 条）；Jackson 由 `z-util-core` 传递来 2.18.9、地板 jackson-bom 是 2.18.6 更低 ⇒ 本仓按坐标写直接条目顶住；protobuf 走地板 |
 | 日志 | slf4j 1.7.36 · log4j-api / log4j-core / log4j-to-slf4j **2.17.2**（本仓按坐标钉住） | 地板把 log4j 系列钉在 2.25.4，本仓基线 tree 是 2.17.2（`core` / `remoting` / `starter` 直引），抬 log4j 要连 Java 8 字节码兼容一起验 ⇒ 迁移零漂移 |
@@ -160,10 +160,10 @@ z-rpc/
 mvn -B clean install -DskipTests
 ```
 
-第三方版本走父链：`z-boot-parent:1.0.21` → `z-boot-dependencies`（地板）+ `z-boot-fleet`（兄弟仓权威表）。
+第三方版本走父链：`z-boot-parent:1.1.0`（第三方地板与兄弟仓权威表均已并入 parent 自身）。
 本仓 `<properties>` 只保留五格自钉：`compile.version` / `hessian.version` / `kryo.version` / `log4j.version` / `junit.version`；
 其余（netty / spring-boot / z-util / protobuf / slf4j / jackson）由父链下发。
-若构建报找不到 parent，先确认本地/镜像能解析到 `io.github.yuku123:z-boot-parent:1.0.21`。
+若构建报找不到 parent，先确认本地/镜像能解析到 `io.github.yuku123:z-boot-parent:1.1.0`。
 
 ### 5 分钟接入：Spring Boot 注解驱动（最常见）
 
