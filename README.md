@@ -34,7 +34,7 @@
 
 > Tomcat 的 `server.port` 与 Netty 的 `z.rpc.server.port` **不能写成同一个值**：examples 的 user-service
 > 两份 yml 都写 20880 时，Tomcat 先 bind、Netty 随后 `BindException`，该应用从来没成功启动过
-> （[`_doc/005_testing/测试报告.md`](_doc/005_testing/测试报告.md) N44）。
+> （见 [测试报告](_doc/005_testing/01-test-report.md) N44）。
 
 ---
 
@@ -614,7 +614,7 @@ Ubuntu 18.04/JDK 1.8.0_362/Maven 3.6.0 各一跑，逐模块读数相同、只�
 `z-util` 抬到 1.0.13 / netty 与 spring-boot 口径对齐），
 `*/src/main/**` 与测试代码 **0 处改动**，因此 571 / 55 / 555 三个读数在本版仍然成立；
 下一次跑测试请复核。逐模块分布与被钉住的缺陷清单见
-[`_doc/005_testing/测试报告.md`](_doc/005_testing/测试报告.md)。
+[`_doc/005_testing/01-test-report.md`](_doc/005_testing/01-test-report.md)。
 
 **两条硬约束**（写进报告贡献规约）：
 
@@ -626,7 +626,7 @@ Ubuntu 18.04/JDK 1.8.0_362/Maven 3.6.0 各一跑，逐模块读数相同、只�
 ## ❌ 还没做（这些是实测结论，不是计划）
 
 下表每一条都是"旧 README 主张 → 现场搜索反证"的形状，编号对应
-[`_doc/005_testing/测试报告.md`](_doc/005_testing/测试报告.md)：
+[`_doc/005_testing/01-test-report.md`](_doc/005_testing/01-test-report.md)：
 
 | 旧 README 的主张 | 实测 |
 |---|---|
@@ -647,7 +647,7 @@ Ubuntu 18.04/JDK 1.8.0_362/Maven 3.6.0 各一跑，逐模块读数相同、只�
 
 ## 🛠️ 贡献
 
-改 `src/main` 请同步 `_doc/005_testing/测试报告.md` 的台账：报告里每个哈希、行号、计数都要能用同一条命令复算。
+改 `src/main` 请同步 `_doc/005_testing/01-test-report.md` 的台账：报告里每个哈希、行号、计数都要能用同一条命令复算。
 新增 SPI 扩展名要同时补 `META-INF/z-rpc/<完整接口类名>` 清单与 `ConfigLandingContractTest` 的两张落点表，
 否则 README 与代码会漂移。抬版本或改 `<parent>` 记得看根 pom 里那段
 `<!-- 删掉的键 ... -->` 与 `<!-- ⚠ 这一条必须在本仓自己声明 ... -->` 注释——
@@ -672,10 +672,10 @@ _Maintained by the z-opc-foundation organization._
 - [`_doc/001_arch/`](_doc/001_arch/) — 架构文档：
   - [`00-overview.md`](_doc/001_arch/00-overview.md) — 项目总览
   - [`01-module-structure.md`](_doc/001_arch/01-module-structure.md) — 模块结构
-  - [`技术实现.md`](_doc/001_arch/技术实现.md) — 技术实现细节
-  - [`z-rpc-admin-frontend.md`](_doc/001_arch/z-rpc-admin-frontend.md) — 控制台前端说明
+  - [`08-design.md`](_doc/001_arch/08-design.md) — 技术实现细节
+  - [`02-admin-frontend.md`](_doc/001_arch/02-admin-frontend.md) — 控制台前端说明
 
-- [`_doc/005_testing/测试报告.md`](_doc/005_testing/测试报告.md) — 缺陷台账（C/H/M/R/N 编号、37 处 `src/main` 改动、
+- [`_doc/005_testing/01-test-report.md`](_doc/005_testing/01-test-report.md) — 缺陷台账（C/H/M/R/N 编号、37 处 `src/main` 改动、
   跨平台复跑读数）；这份文件位于 `_doc/` 根而不是 `002_deploy/` 之下，`002_` 前缀是历史遗留，
   本 README 各处 `报告 Nxx / Hx / §x.y` 指向的都是它。
 

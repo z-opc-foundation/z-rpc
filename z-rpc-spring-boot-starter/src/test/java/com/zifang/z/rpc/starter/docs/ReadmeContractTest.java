@@ -1169,11 +1169,11 @@ class ReadmeContractTest {
     }
 
     private static String report() throws IOException {
-        // 2026-09-30「散落文件收口到 _doc/ 编号桶」把报告从 _doc/002_测试报告.md
-        // 搬到了 _doc/005_testing/测试报告.md，README 的 6 处引用当时就一起改了，
+        // 2026-09-30「散落文件收口到 _doc/ 编号桶」把报告从旧的 002 号桶
+        // 搬到了 _doc/005_testing/01-test-report.md，README 的 6 处引用当时就一起改了，
         // 只有这把尺还指着旧路径 ⇒ readme 相关用例全体报「报告不在盘上」。
         // 路径以 README 现引用的为准（README 与报告内容描述一致，改尺而不是改文档）。
-        File f = new File(repoRoot(), "_doc/005_testing/测试报告.md");
+        File f = new File(repoRoot(), "_doc/005_testing/01-test-report.md");
         assertTrue(f.isFile(), "报告不在盘上，指向报告的引用无从核对：" + f);
         String s = text(f);
         assertTrue(s.length() > 20000, "报告只有 " + s.length() + " 字节，不像完整版");
