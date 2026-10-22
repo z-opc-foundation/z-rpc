@@ -73,6 +73,20 @@ export default function InstanceTable() {
                         rowKey={(r) => `${r.ip}:${r.port}:${r.cluster}`}
                         loading={loading}
                         dataSource={rows}
+                        // 分页按 lead 008 §2 规则 2 补齐四件套（原来整个 pagination 都没写，
+                        // 落到 antd 默认的 pageSize 10，缺 showSizeChanger / pageSizeOptions / showTotal）。
+                        // 【为什么是端侧分页】这里的 rows 是**某一个服务**的实例清单：clusterMap 在前端
+                        // 展开成扁平行（services/api.js 的 flattenInstances），后端没有「按页取实例」的接口
+                        // ——/naming/listServices 是整表返回、clusterMap 解析在端上 ⇒ 翻页只能在端侧切。
+                        // 【为什么不接基座 ListTable】页面上方已经有服务名查询框（输入服务名 → 查注册表），
+                        // 再挂 searchKeys 会出现两个搜索框；而且 ListTable 自带一层 Card，
+                        // 套进本页已有的 Card 里会变成卡片套卡片。
+                        pagination={{
+                            pageSize: 20,
+                            showSizeChanger: true,
+                            pageSizeOptions: ['10', '20', '50', '100'],
+                            showTotal: (total) => `共 ${total} 条`,
+                        }}
                         columns={[
                             {title: 'IP', dataIndex: 'ip', key: 'ip', width: 150},
                             {title: '端口', dataIndex: 'port', key: 'port', width: 90},
