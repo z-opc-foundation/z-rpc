@@ -1,6 +1,6 @@
 {
   "name": "@yuku123/z-rpc-component",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "z-rpc 可复用前端组件：服务注册发现管理台（服务/实例；lead 005 §9）",
   "type": "module",
   "main": "./dist/index.js",
