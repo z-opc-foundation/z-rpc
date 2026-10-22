@@ -102,7 +102,15 @@ export default function ServiceList() {
           rowKey="serviceKey"
           columns={columns}
           dataSource={services}
-          pagination={{ pageSize: 20 }}
+          // 分页按 lead 008 §2 规则 2 补齐四件套（原来只有 pageSize: 20）。
+          // 这页的过滤是**服务端过滤**（SearchInput → listServices(keyword) 走后端查），
+          // 所以不接基座 ListTable 的 searchKeys —— 否则页面上会出现两个搜索框。
+          pagination={{
+            pageSize: 20,
+            showSizeChanger: true,
+            pageSizeOptions: ['10', '20', '50', '100'],
+            showTotal: (total) => `共 ${total} 条`,
+          }}
           size="middle"
           locale={{
             emptyText: (

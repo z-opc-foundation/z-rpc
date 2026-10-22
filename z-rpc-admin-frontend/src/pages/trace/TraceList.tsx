@@ -71,7 +71,22 @@ export default function TraceList() {
       {traces.length === 0 ? (
         <EmptyState title="暂无链路追踪数据" description="等待 z-rpc-admin 采集到调用链后在此展示" />
       ) : (
-        <Table rowKey="traceId" columns={columns} dataSource={traces} pagination={{ pageSize: 20 }} />
+        <Table
+          rowKey="traceId"
+          columns={columns}
+          dataSource={traces}
+          // 分页按 lead 008 §2 规则 2 补齐四件套（原来只有 pageSize: 20，
+          // 缺 showSizeChanger / pageSizeOptions / showTotal）。
+          // 【为什么不用基座 ListTable】本仓 node_modules 里装的基座是 1.1.2，
+          // 还没有 ListTable 这个导出（基座发版由主控统一做），所以这里先用 antd 原生
+          // Table 补齐四件套，不在本仓擅自改基座版本。
+          pagination={{
+            pageSize: 20,
+            showSizeChanger: true,
+            pageSizeOptions: ['10', '20', '50', '100'],
+            showTotal: (total: number) => `共 ${total} 条`,
+          }}
+        />
       )}
     </Card>
   )
