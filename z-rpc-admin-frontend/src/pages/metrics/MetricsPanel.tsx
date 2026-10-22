@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
-import { Card, Row, Col, Select, Spin } from 'antd'
-import ReactECharts from 'echarts-for-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Card, Row, Col, Select } from 'antd'
+import { EChartsChart } from '@yuku123/z-frontend-common/ui/echarts'
+import { ErrorState, LoadingState } from '@yuku123/z-frontend-common/ui'
 import dayjs from 'dayjs'
 import { listServices, getServiceMetrics } from '../../api'
 import type { MetricsPoint } from '../../types'
@@ -10,22 +11,44 @@ export default function MetricsPanel() {
   const [selected, setSelected] = useState<string | undefined>()
   const [metrics, setMetrics] = useState<Record<string, MetricsPoint[]>>({})
   const [loading, setLoading] = useState(true)
+  const [metricsLoading, setMetricsLoading] = useState(false)
+  const [error, setError] = useState<unknown>(null)
 
-  useEffect(() => {
-    listServices().then((data) => {
-      const list = data || []
-      setServices(list)
-      if (list.length > 0) setSelected(list[0].serviceKey)
-    })
+  const loadServices = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const list = await listServices()
+      const arr = list || []
+      setServices(arr)
+      if (arr.length > 0) setSelected(arr[0].serviceKey)
+    } catch (e) {
+      setError(e)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const loadMetrics = useCallback(async (serviceKey: string) => {
+    setMetricsLoading(true)
+    setError(null)
+    try {
+      const m = await getServiceMetrics(serviceKey)
+      setMetrics(m || {})
+    } catch (e) {
+      setError(e)
+    } finally {
+      setMetricsLoading(false)
+    }
   }, [])
 
   useEffect(() => {
-    if (!selected) return
-    setLoading(true)
-    getServiceMetrics(selected).then((m) => {
-      setMetrics(m || {})
-    }).finally(() => setLoading(false))
-  }, [selected])
+    loadServices()
+  }, [loadServices])
+
+  useEffect(() => {
+    if (selected) loadMetrics(selected)
+  }, [selected, loadMetrics])
 
   const allPoints = Object.values(metrics).flat()
 
@@ -56,6 +79,14 @@ export default function MetricsPanel() {
     series: [{ name: '错误率', type: 'line', smooth: true, data: allPoints.map((p) => p.errorRate), areaStyle: { color: '#f5222d', opacity: 0.2 }, itemStyle: { color: '#f5222d' } }]
   }
 
+  if (loading) {
+    return <LoadingState variant="detail" rows={6} />
+  }
+
+  if (error) {
+    return <ErrorState error={error} onRetry={() => (selected ? loadMetrics(selected) : loadServices())} variant="full" />
+  }
+
   return (
     <div>
       <Card style={{ marginBottom: 16 }}>
@@ -67,13 +98,15 @@ export default function MetricsPanel() {
           options={services.map((s) => ({ value: s.serviceKey, label: s.serviceKey }))}
         />
       </Card>
-      <Spin spinning={loading}>
+      {metricsLoading ? (
+        <LoadingState variant="detail" rows={6} />
+      ) : (
         <Row gutter={[16, 16]}>
-          <Col span={24}><Card><ReactECharts option={qpsOption} style={{ height: 280 }} /></Card></Col>
-          <Col span={24}><Card><ReactECharts option={rtOption} style={{ height: 280 }} /></Card></Col>
-          <Col span={24}><Card><ReactECharts option={errOption} style={{ height: 280 }} /></Card></Col>
+          <Col span={24}><Card><EChartsChart option={qpsOption} height={280} /></Card></Col>
+          <Col span={24}><Card><EChartsChart option={rtOption} height={280} /></Card></Col>
+          <Col span={24}><Card><EChartsChart option={errOption} height={280} /></Card></Col>
         </Row>
-      </Spin>
+      )}
     </div>
   )
 }

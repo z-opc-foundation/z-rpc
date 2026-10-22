@@ -1,57 +1,54 @@
-import { useEffect, useState } from 'react'
-import { Row, Col, Card, Spin, Empty } from 'antd'
+import { useCallback, useEffect, useState } from 'react'
+import { Row, Col, Card } from 'antd'
 import {
   AppstoreOutlined,
   CloudServerOutlined,
   ApiOutlined,
   ThunderboltOutlined
 } from '@ant-design/icons'
-import ReactECharts from 'echarts-for-react'
+import { EChartsChart } from '@yuku123/z-frontend-common/ui/echarts'
+import { ErrorState, GradientStatCard, LoadingState } from '@yuku123/z-frontend-common/ui'
 import dayjs from 'dayjs'
-import { getDashboardOverview, getServiceMetrics, listServices } from '../../api'
-import type { DashboardOverview, MetricsPoint } from '../../types'
-
-const cardStyle = (bg: string): React.CSSProperties => ({
-  background: `linear-gradient(135deg, ${bg} 0%, ${bg}dd 100%)`,
-  color: '#fff',
-  borderRadius: 12,
-  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)'
-})
+import { getDashboardOverview, listServices } from '../../api'
+import type { DashboardOverview } from '../../types'
 
 export default function Dashboard() {
   const [overview, setOverview] = useState<DashboardOverview | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<unknown>(null)
   const [trendData, setTrendData] = useState<any>({ timestamps: [], qps: [], p99: [], errorRate: [] })
 
-  useEffect(() => {
-    let timer: number
-    const load = async () => {
-      try {
-        const data = await getDashboardOverview()
-        setOverview(data)
+  const load = useCallback(async () => {
+    try {
+      const data = await getDashboardOverview()
+      setOverview(data)
+      setError(null)
 
-        // 拉取所有服务最新一条数据合成趋势
-        const services = await listServices()
-        const now = dayjs().format('HH:mm:ss')
-        const newQps = services.reduce((s: number, svc: any) => s + (svc.metrics?.qps || 0), 0)
-        setTrendData((prev: any) => {
-          const next = { ...prev }
-          next.timestamps = [...(prev.timestamps || []), now].slice(-30)
-          next.qps = [...(prev.qps || []), newQps].slice(-30)
-          next.p99 = [...(prev.p99 || []), Math.floor(Math.random() * 100 + 20)].slice(-30)
-          next.errorRate = [...(prev.errorRate || []), Math.random() * 0.05].slice(-30)
-          return next
-        })
-      } catch (e) {
-        console.error(e)
-      } finally {
-        setLoading(false)
-      }
+      // 拉取所有服务最新一条数据合成趋势
+      const services = await listServices()
+      const now = dayjs().format('HH:mm:ss')
+      const newQps = services.reduce((s: number, svc: any) => s + (svc.metrics?.qps || 0), 0)
+      setTrendData((prev: any) => {
+        const next = { ...prev }
+        next.timestamps = [...(prev.timestamps || []), now].slice(-30)
+        next.qps = [...(prev.qps || []), newQps].slice(-30)
+        next.p99 = [...(prev.p99 || []), Math.floor(Math.random() * 100 + 20)].slice(-30)
+        next.errorRate = [...(prev.errorRate || []), Math.random() * 0.05].slice(-30)
+        return next
+      })
+    } catch (e) {
+      // 轮询失败不清空已有数据 —— 只标记错误, 让页面保留上一次成功的读数
+      setError(e)
+    } finally {
+      setLoading(false)
     }
-    load()
-    timer = window.setInterval(load, 5000)
-    return () => window.clearInterval(timer)
   }, [])
+
+  useEffect(() => {
+    load()
+    const timer = window.setInterval(load, 5000)
+    return () => window.clearInterval(timer)
+  }, [load])
 
   const trendOption = {
     tooltip: { trigger: 'axis' },
@@ -70,66 +67,38 @@ export default function Dashboard() {
   }
 
   if (loading) {
-    return <Spin size="large" style={{ display: 'block', marginTop: 80 }} />
+    return <LoadingState variant="cards" rows={4} />
   }
 
-  if (!overview) {
-    return <Empty description="暂无数据，请确认 z-rpc-admin 已启动" />
+  // 首次加载就失败 ⇒ 没有任何读数可展示, 用整页错误态 + 重试
+  if (error && !overview) {
+    return <ErrorState error={error} onRetry={load} variant="full" />
   }
 
   return (
     <div>
+      {/* 轮询中途失败: 就近提示但不清空已渲染的读数 */}
+      {error ? <ErrorState error={error} onRetry={load} style={{ marginBottom: 16 }} /> : null}
+
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} md={6}>
-          <Card style={cardStyle('#1677ff')} bodyStyle={{ padding: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <AppstoreOutlined style={{ fontSize: 40, opacity: 0.85 }} />
-              <div>
-                <div style={{ fontSize: 14, opacity: 0.9 }}>服务总数</div>
-                <div style={{ fontSize: 30, fontWeight: 600 }}>{overview.serviceCount}</div>
-              </div>
-            </div>
-          </Card>
+          <GradientStatCard icon={<AppstoreOutlined />} label="服务总数" value={overview?.serviceCount ?? 0} color="blue" />
         </Col>
         <Col xs={24} sm={12} md={6}>
-          <Card style={cardStyle('#52c41a')} bodyStyle={{ padding: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <CloudServerOutlined style={{ fontSize: 40, opacity: 0.85 }} />
-              <div>
-                <div style={{ fontSize: 14, opacity: 0.9 }}>Provider 数</div>
-                <div style={{ fontSize: 30, fontWeight: 600 }}>{overview.providerCount}</div>
-              </div>
-            </div>
-          </Card>
+          <GradientStatCard icon={<CloudServerOutlined />} label="Provider 数" value={overview?.providerCount ?? 0} color="green" />
         </Col>
         <Col xs={24} sm={12} md={6}>
-          <Card style={cardStyle('#fa8c16')} bodyStyle={{ padding: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <ApiOutlined style={{ fontSize: 40, opacity: 0.85 }} />
-              <div>
-                <div style={{ fontSize: 14, opacity: 0.9 }}>总 QPS</div>
-                <div style={{ fontSize: 30, fontWeight: 600 }}>{overview.totalQps}</div>
-              </div>
-            </div>
-          </Card>
+          <GradientStatCard icon={<ApiOutlined />} label="总 QPS" value={overview?.totalQps ?? 0} color="orange" />
         </Col>
         <Col xs={24} sm={12} md={6}>
-          <Card style={cardStyle('#722ed1')} bodyStyle={{ padding: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <ThunderboltOutlined style={{ fontSize: 40, opacity: 0.85 }} />
-              <div>
-                <div style={{ fontSize: 14, opacity: 0.9 }}>健康度</div>
-                <div style={{ fontSize: 30, fontWeight: 600 }}>99.9%</div>
-              </div>
-            </div>
-          </Card>
+          <GradientStatCard icon={<ThunderboltOutlined />} label="健康度" value={99.9} suffix="%" precision={1} color="violet" />
         </Col>
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col span={24}>
           <Card title="实时调用趋势 (QPS / P99 / 错误率)" bordered={false}>
-            <ReactECharts option={trendOption} style={{ height: 360 }} />
+            <EChartsChart option={trendOption} height={360} />
           </Card>
         </Col>
       </Row>

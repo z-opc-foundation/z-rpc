@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { Card, Descriptions, Table, Tag, Spin, Button, Space, Tabs } from 'antd'
+import { Card, Table, Tag, Button, Space, Tabs, type TableColumnsType } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
+import { EChartsChart } from '@yuku123/z-frontend-common/ui/echarts'
+import { ErrorState, LoadingState } from '@yuku123/z-frontend-common/ui'
 import { getServiceDetail, getServiceMetrics } from '../../api'
 import type { ProviderVO, MetricsPoint } from '../../types'
-import ReactECharts from 'echarts-for-react'
 import dayjs from 'dayjs'
 
 export default function ServiceDetail() {
@@ -13,26 +14,29 @@ export default function ServiceDetail() {
   const [providers, setProviders] = useState<ProviderVO[]>([])
   const [metrics, setMetrics] = useState<Record<string, MetricsPoint[]>>({})
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<unknown>(null)
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
       const detail = await getServiceDetail(decoded)
       setProviders(detail.providers || [])
       const m = await getServiceMetrics(decoded)
       setMetrics(m || {})
     } catch (e) {
-      console.error(e)
+      // 详情加载失败要能就地重试, 只 console.error 等于把用户挡在门外
+      setError(e)
     } finally {
       setLoading(false)
     }
-  }
+  }, [decoded])
 
   useEffect(() => {
     if (decoded) load()
-  }, [decoded])
+  }, [decoded, load])
 
-  const providerColumns = [
+  const providerColumns: TableColumnsType<ProviderVO> = [
     { title: '实例 ID', dataIndex: 'id', key: 'id' },
     { title: '地址', dataIndex: 'address', key: 'address', render: (a: string) => <Tag color="geekblue">{a}</Tag> },
     { title: '版本', dataIndex: 'version', key: 'version' },
@@ -54,8 +58,8 @@ export default function ServiceDetail() {
     ]
   }
 
-  return (
-    <Spin spinning={loading}>
+  if (error) {
+    return (
       <Space direction="vertical" style={{ width: '100%' }} size={16}>
         <Card>
           <Space>
@@ -63,36 +67,52 @@ export default function ServiceDetail() {
             <h2 style={{ margin: 0 }}>服务详情：{decoded}</h2>
           </Space>
         </Card>
-
-        <Tabs
-          items={[
-            {
-              key: 'providers',
-              label: 'Provider 列表',
-              children: (
-                <Card>
-                  <Table
-                    rowKey="id"
-                    columns={providerColumns}
-                    dataSource={providers}
-                    pagination={false}
-                    size="middle"
-                  />
-                </Card>
-              )
-            },
-            {
-              key: 'metrics',
-              label: '性能监控',
-              children: (
-                <Card title="响应时间分布 (P50/P90/P99)">
-                  <ReactECharts option={chartOption} style={{ height: 360 }} />
-                </Card>
-              )
-            }
-          ]}
-        />
+        <ErrorState error={error} onRetry={load} variant="full" />
       </Space>
-    </Spin>
+    )
+  }
+
+  if (loading) {
+    return <LoadingState variant="detail" rows={5} />
+  }
+
+  return (
+    <Space direction="vertical" style={{ width: '100%' }} size={16}>
+      <Card>
+        <Space>
+          <Link to="/services"><Button icon={<ArrowLeftOutlined />}>返回</Button></Link>
+          <h2 style={{ margin: 0 }}>服务详情：{decoded}</h2>
+        </Space>
+      </Card>
+
+      <Tabs
+        items={[
+          {
+            key: 'providers',
+            label: 'Provider 列表',
+            children: (
+              <Card>
+                <Table
+                  rowKey="id"
+                  columns={providerColumns}
+                  dataSource={providers}
+                  pagination={false}
+                  size="middle"
+                />
+              </Card>
+            )
+          },
+          {
+            key: 'metrics',
+            label: '性能监控',
+            children: (
+              <Card title="响应时间分布 (P50/P90/P99)">
+                <EChartsChart option={chartOption} height={360} />
+              </Card>
+            )
+          }
+        ]}
+      />
+    </Space>
   )
 }

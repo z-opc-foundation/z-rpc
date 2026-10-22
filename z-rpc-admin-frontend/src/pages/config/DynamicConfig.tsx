@@ -1,9 +1,12 @@
-import { Card, Tabs, Form, Input, InputNumber, Button, Space, message } from 'antd'
+import { Card, Tabs, Form, Input, InputNumber, Button, Space, App } from 'antd'
 import { useState } from 'react'
 
 const { TextArea } = Input
 
 export default function DynamicConfig() {
+  // 用 App.useApp() 拿 message 实例: antd 6 的静态 message.* 拿不到 ConfigProvider 的
+  // 动态主题(运行时 console 告警), 且弹层不受 Provider 上下文约束。
+  const { message } = App.useApp()
   const [mockRule, setMockRule] = useState('force:return Hello Mock')
   const [weight, setWeight] = useState(100)
   const [condition, setCondition] = useState('host = 10.* => 10.0.0.1')

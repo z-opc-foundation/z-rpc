@@ -1,6 +1,8 @@
 import axios from 'axios'
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:9090'
+// 默认端口跟 z-rpc-admin 的 application.yml 对齐(server.port: 19090);
+// 旧的 9090 是过期读数, 留着会让控制台默认连不上后端。
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:19090'
 
 const client = axios.create({
   baseURL: BASE_URL,

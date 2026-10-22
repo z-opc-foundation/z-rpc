@@ -94,7 +94,7 @@ z-rpc/
 ├── z-rpc-spring-boot-starter/       # @ZRpcService / @ZRpcReference / @EnableZRpc / ZRpcProperties / 六个 AutoConfiguration / Exporter / Injector / FrameworkInitializer
 ├── z-rpc-examples/                  # ❌ 不在 reactor：聚合 pom（子模块 user-service / order-service，都是 Spring Boot 应用）
 ├── z-rpc-admin/                     # ❌ 不在 reactor：Spring Boot 控制台后端，19090（`z-config-client` 依赖注释着）
-├── z-rpc-admin-frontend/            # ❌ 不在 Maven：React 18 + AntD 5 + Vite 5 前端，5173
+├── z-rpc-admin-frontend/            # ❌ 不在 Maven：React 19 + AntD 6 + Vite 5 前端，5173
 └── _doc/                            # 见文末「文档目录」
 ```
 
@@ -148,7 +148,7 @@ z-rpc/
 | 测试 | JUnit 5.8.2 + `junit-platform` 1.8.2 + `opentest4j` / `apiguardian`（跟着 jupiter 原值） | 地板 `junit-bom` 是 5.9.3，会动到用例发现与计数 ⇒ 逐坐标钉住基线；`maven-surefire-plugin:2.22.2` 显式钉版本（Maven 3.6.x 默认 2.12.4 不认识 JUnit 5） |
 | 构建 | Maven（后端）· flatten-maven-plugin 1.5.0（`flattenMode=oss`，常开、不挂 `central` profile） | 本仓自声明补齐：`z-boot-parent` 的 flatten 声明带 `<inherited>false</inherited>`，父链传不下来 |
 | 发布 profile | `-Pcentral`：补 `maven-source-plugin` / `maven-javadoc-plugin` / `maven-gpg-plugin` + `central-publishing-maven-plugin:0.7.0`，把 `maven-deploy-plugin` 关掉 | 日常 `mvn install` / `mvn test` **不需要**带这个 profile |
-| 控制台前端 | React 18.3 · AntD 5.21 · Vite 5.4 · TypeScript 5.5 · zustand 4.5 · echarts 5.5 · dayjs · axios | `z-rpc-admin-frontend/package.json` |
+| 控制台前端 | React 19.3 · AntD 6.6 · React Router 7.18 · Vite 5.4 · TypeScript 5.9 · zustand 4.5 · echarts 5.6 · dayjs · axios · @yuku123/z-frontend-common 1.1.2（共享 UI 基座：EmptyState / ErrorState / LoadingState / SearchInput / TableToolbar / GradientStatCard / EChartsChart） | `z-rpc-admin-frontend/package.json` |
 
 ---
 
@@ -354,7 +354,7 @@ curl "http://localhost:20890/order/user/1"
 
 ```bash
 cd z-rpc-admin && mvn -B spring-boot:run                     # http://localhost:19090
-cd z-rpc-admin-frontend && pnpm install && pnpm dev          # http://localhost:5173
+cd z-rpc-admin-frontend && npm install && npm run dev        # http://localhost:5173
 ```
 
 上一版 README 写 admin 在 9090 —— `z-rpc-admin/src/main/resources/application.yml` 里是 **19090**。

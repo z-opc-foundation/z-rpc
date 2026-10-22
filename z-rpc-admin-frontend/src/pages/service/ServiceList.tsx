@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
-import { Table, Input, Tag, Space, Button, message, Spin } from 'antd'
-import { SearchOutlined, ReloadOutlined, EyeOutlined } from '@ant-design/icons'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Table, Tag, Space, Button, type TableColumnsType } from 'antd'
+import { EyeOutlined } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
+import { EmptyState, ErrorState, LoadingState, RefreshButton, SearchInput, TableToolbar } from '@yuku123/z-frontend-common/ui'
 import { listServices } from '../../api'
 import type { ServiceVO } from '../../types'
 
@@ -9,24 +10,34 @@ export default function ServiceList() {
   const [services, setServices] = useState<ServiceVO[]>([])
   const [loading, setLoading] = useState(true)
   const [keyword, setKeyword] = useState('')
+  const [error, setError] = useState<unknown>(null)
 
-  const load = async () => {
+  // 记住最近一次真正发起的查询: 共享 SearchInput 在 Enter 上会同时经 onPressEnter 与
+  // onKeyDown 触发两次 onSearch, 不去重就会打两次重复请求。手动刷新走 force 绕过该去重。
+  const lastRequestedRef = useRef<string | null>(null)
+
+  const load = useCallback(async (kw: string, force = false) => {
+    if (!force && lastRequestedRef.current === kw) return
+    lastRequestedRef.current = kw
     setLoading(true)
+    setError(null)
     try {
-      const data = await listServices(keyword)
+      const data = await listServices(kw)
       setServices(data || [])
-    } catch (e: any) {
-      message.error('加载服务列表失败: ' + (e?.message || ''))
+    } catch (e) {
+      // 加载失败就近展示错误态并给出重试入口, 不再只弹一条顶部 toast
+      setError(e)
+      setServices([])
     } finally {
       setLoading(false)
     }
-  }
-
-  useEffect(() => {
-    load()
   }, [])
 
-  const columns = [
+  useEffect(() => {
+    load('')
+  }, [load])
+
+  const columns: TableColumnsType<ServiceVO> = [
     {
       title: '服务名',
       dataIndex: 'serviceKey',
@@ -37,7 +48,7 @@ export default function ServiceList() {
       title: 'Provider 数',
       dataIndex: 'providerCount',
       key: 'providerCount',
-      sorter: (a: ServiceVO, b: ServiceVO) => a.providerCount - b.providerCount
+      sorter: (a, b) => a.providerCount - b.providerCount
     },
     {
       title: 'Consumer 数',
@@ -47,12 +58,12 @@ export default function ServiceList() {
     {
       title: 'QPS',
       key: 'qps',
-      render: (_: any, r: ServiceVO) => (r.metrics?.qps || 0).toFixed(1)
+      render: (_: unknown, r) => (r.metrics?.qps || 0).toFixed(1)
     },
     {
       title: '操作',
       key: 'action',
-      render: (_: any, r: ServiceVO) => (
+      render: (_: unknown, r) => (
         <Space>
           <Link to={`/services/${encodeURIComponent(r.serviceKey)}`}>
             <Button type="link" icon={<EyeOutlined />}>详情</Button>
@@ -66,29 +77,43 @@ export default function ServiceList() {
   ]
 
   return (
-    <Spin spinning={loading}>
-      <div style={{ background: '#fff', padding: 16, borderRadius: 8 }}>
-        <Space style={{ marginBottom: 16 }}>
-          <Input
+    <div style={{ background: '#fff', padding: 16, borderRadius: 8 }}>
+      <TableToolbar
+        left={
+          <SearchInput
             placeholder="搜索服务名"
-            prefix={<SearchOutlined />}
             value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            onPressEnter={load}
-            allowClear
-            style={{ width: 280 }}
+            onChange={setKeyword}
+            onSearch={(v) => {
+              setKeyword(v)
+              load(v)
+            }}
           />
-          <Button type="primary" onClick={load}>搜索</Button>
-          <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
-        </Space>
+        }
+        right={<RefreshButton onClick={() => load(keyword, true)} loading={loading} />}
+      />
+
+      {error ? (
+        <ErrorState error={error} onRetry={() => load(keyword, true)} />
+      ) : loading ? (
+        <LoadingState variant="table" rows={6} />
+      ) : (
         <Table
           rowKey="serviceKey"
           columns={columns}
           dataSource={services}
           pagination={{ pageSize: 20 }}
           size="middle"
+          locale={{
+            emptyText: (
+              <EmptyState
+                title="暂无服务"
+                description="当前关键字下没有已注册的服务, 可换个关键字或刷新重试"
+              />
+            )
+          }}
         />
-      </div>
-    </Spin>
+      )}
+    </div>
   )
 }
