@@ -24,17 +24,28 @@ export default function ServiceTable() {
         setLoading(true)
         try {
             const services = await rpcApi.listServices()
-            const enriched = (services || []).map((s, i) => ({
-                key: s.serviceName || i,
-                serviceName: s.serviceName || s.name,
-                groupName: s.groupName || 'DEFAULT_GROUP',
-                clusterMap: s.clusterMap,
-                instanceCount: (() => {
-                    const cm = parseClusterMap(s.clusterMap)
-                    if (!cm) return -1
-                    return flattenInstances(cm).length
-                })(),
-            }))
+            // ⚠ 2026-10-25 修（按 z-config-web `ZNamingController#listServices` 的**实测键名**改）：
+            //   后端发的键是 serviceName / **group** / namespace / **clusters** /
+            //   **totalInstanceCount** / **healthyInstanceCount** / status；
+            //   原实现读 `s.groupName` / `s.clusterMap` ⇒ 两列恒空（假绿列），
+            //   实例数只能靠端侧解析 clusterMap（后端没给时恒 -1「解析失败」）。
+            const enriched = (services || []).map((s, i) => {
+                const cm = parseClusterMap(s.clusters ?? s.clusterMap)
+                const parsedCount = cm ? flattenInstances(cm).length : -1
+                const backendCount = Number(s.totalInstanceCount)
+                return {
+                    key: s.serviceName || i,
+                    serviceName: s.serviceName || s.name,
+                    groupName: s.group || s.groupName || 'DEFAULT_GROUP',
+                    namespace: s.namespace || 'public',
+                    status: s.status || '',
+                    clusterMap: cm,
+                    instanceCount: Number.isFinite(backendCount)
+                        ? backendCount
+                        : parsedCount,
+                    healthyInstanceCount: Number(s.healthyInstanceCount ?? NaN),
+                }
+            })
             setRows(enriched)
             setError(null)
         } catch (e) {
@@ -48,8 +59,13 @@ export default function ServiceTable() {
         {title: '服务名', dataIndex: 'serviceName', key: 'serviceName', width: 280,
             render: (v) => <Text code style={{fontSize: 12}}>{v}</Text>},
         {title: '分组', dataIndex: 'groupName', key: 'groupName', width: 160},
+        {title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 120},
         {title: '实例数', dataIndex: 'instanceCount', key: 'count', width: 100,
-            render: (v) => v < 0 ? <Tag color="error">clusterMap 解析失败</Tag> : v},
+            render: (v) => v < 0 ? <Tag color="error">实例数解析失败</Tag> : v},
+        {title: '健康实例', dataIndex: 'healthyInstanceCount', key: 'healthyInstanceCount', width: 100,
+            render: (v) => (Number.isFinite(v) ? v : '-')},
+        {title: '状态', dataIndex: 'status', key: 'status', width: 100,
+            render: (v) => (v ? <Tag color={v === '健康' ? 'green' : 'orange'}>{v}</Tag> : '-')},
     ]
 
     return (
@@ -73,7 +89,7 @@ export default function ServiceTable() {
                 columns={columns}
                 loading={loading && !rows.length}
                 size="small"
-                searchKeys="serviceName,groupName"
+                searchKeys="serviceName,groupName,namespace"
                 searchPlaceholder="按服务名 / 分组过滤"
                 emptyTitle="暂无已注册服务"
                 emptyDescription="/naming/listServices 返回了空列表 —— 服务还没注册上来。"

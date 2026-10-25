@@ -27,10 +27,10 @@ export default function InstanceTable() {
                 setError(new Error(`注册表里没有服务 ${name}`))
                 return
             }
-            const cm = parseClusterMap(hit.clusterMap)
+            const cm = parseClusterMap(hit.clusters ?? hit.clusterMap)
             if (cm === null) {
                 setRows([])
-                setError(new Error(`服务 ${name} 的 clusterMap 不是合法 JSON，无法解析实例`))
+                setError(new Error(`服务 ${name} 的 clusters 不是合法 JSON，无法解析实例`))
                 return
             }
             setRows(flattenInstances(cm))
@@ -68,7 +68,7 @@ export default function InstanceTable() {
                 ) : (
                     <Table
                         size="small"
-                        rowKey={(r) => `${r.ip}:${r.port}:${r.cluster}`}
+                        rowKey={(r) => `${r.ip || r.host}:${r.port}:${r.cluster}`}
                         loading={loading}
                         dataSource={rows}
                         // 分页按 lead 008 §2 规则 2 补齐四件套（原来整个 pagination 都没写，
