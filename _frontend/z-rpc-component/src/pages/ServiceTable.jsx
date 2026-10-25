@@ -1,6 +1,6 @@
 /** 服务清单：/naming/listServices + 逐服务实例展开。 */
 import {useEffect, useState} from 'react'
-import {Alert, Button, Space, Table, Tag, Typography} from 'antd'
+import {Alert, Button, Input, Space, Table, Tag, Typography} from 'antd'
 import {ReloadOutlined} from '@ant-design/icons'
 import {ListTable} from '@yuku123/z-frontend-common/ui'
 import {flattenInstances, parseClusterMap, rpcApi} from '../services/api'
@@ -12,6 +12,13 @@ export default function ServiceTable() {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState(null)
     const [expanded, setExpanded] = useState({})
+
+    // ── 展开后的实例明细查询过滤（lead 008 §2 规则 3，端侧过滤） ──
+    // 服务注册表本身走基座 ListTable（已带 searchKeys 过滤框）；
+    // 这里补的是展开行里的**实例明细子表**：该表没有包住它的 Card，
+    // 按 §2 规则 3 的兜底写法，在 Table 正上方加一行过滤框。
+    // 过滤字段取实例列里真实存在的字段：cluster / host / port。
+    const [instanceKeyword, setInstanceKeyword] = useState('')
 
     const fetch = async () => {
         setLoading(true)
@@ -81,19 +88,35 @@ export default function ServiceTable() {
                         const cm = parseClusterMap(r.clusterMap)
                         const instances = cm ? flattenInstances(cm) : []
                         if (!instances.length) return <Text type="secondary">无实例或解析失败</Text>
+                        const kw = instanceKeyword.trim().toLowerCase()
+                        const filtered = kw
+                            ? instances.filter((i) =>
+                                `${i.cluster || ''} ${i.host || ''} ${i.port || ''}`.toLowerCase().includes(kw))
+                            : instances
                         return (
                             // 实例明细子表 —— pagination={false} 豁免说明：这是**父行（服务）展开后
                             // 才出现的子表**（父子行可展开的树形表），行数由该服务的实例数决定；
                             // 加分页条会把「父行 + 展开行」拆到两页，反而看不出实例属于哪个服务。
-                            <Table rowKey="key" dataSource={instances} size="small" pagination={false}
-                                   columns={[
-                                       {title: '集群', dataIndex: 'cluster', width: 120},
-                                       {title: '地址', key: 'addr',
-                                           render: (_, i) => <Text code>{i.host}:{i.port}</Text>},
-                                       {title: '健康', dataIndex: 'healthy', width: 80,
-                                           render: (v) => v ? <Tag color="green">健康</Tag> : <Tag color="red">不健康</Tag>},
-                                       {title: '权重', dataIndex: 'weight', width: 80},
-                                   ]}/>
+                            <div>
+                                {/* 子表没有 Card，按 §2 规则 3 兜底：Table 正上方加一行过滤框 */}
+                                <Space style={{marginBottom: 8}}>
+                                    <Input.Search
+                                        allowClear
+                                        placeholder="按集群 / 地址过滤"
+                                        style={{width: 220}}
+                                        onChange={(e) => setInstanceKeyword(e.target.value)}
+                                    />
+                                </Space>
+                                <Table rowKey="key" dataSource={filtered} size="small" pagination={false}
+                                       columns={[
+                                           {title: '集群', dataIndex: 'cluster', width: 120},
+                                           {title: '地址', key: 'addr',
+                                               render: (_, i) => <Text code>{i.host}:{i.port}</Text>},
+                                           {title: '健康', dataIndex: 'healthy', width: 80,
+                                               render: (v) => v ? <Tag color="green">健康</Tag> : <Tag color="red">不健康</Tag>},
+                                           {title: '权重', dataIndex: 'weight', width: 80},
+                                       ]}/>
+                            </div>
                         )
                     },
                 }}
