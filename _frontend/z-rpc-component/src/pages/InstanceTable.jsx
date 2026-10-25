@@ -2,7 +2,7 @@ import {useEffect, useState} from 'react'
 import {Alert, Badge, Button, Card, Input, Table, Tag} from 'antd'
 import {SearchOutlined} from '@ant-design/icons'
 import {flattenInstances, parseClusterMap, rpcApi} from '../services/api'
-import {EmptyState, PageHeader} from '@yuku123/z-frontend-common/ui'
+import {EmptyState} from '@yuku123/z-frontend-common/ui'
 import {useSearchParams} from 'react-router-dom'
 
 export default function InstanceTable() {
@@ -50,8 +50,6 @@ export default function InstanceTable() {
 
     return (
         <div>
-            <PageHeader title="服务实例"
-                        description="按服务名展开 clusterMap 里的实例（数据源 GET /api/naming/listServices → clusterMap）"/>
             <Card>
                 <Input.Search
                     style={{marginBottom: 12, maxWidth: 420}}
