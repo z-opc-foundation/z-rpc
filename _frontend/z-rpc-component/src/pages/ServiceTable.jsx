@@ -94,9 +94,6 @@ export default function ServiceTable() {
                                 `${i.cluster || ''} ${i.host || ''} ${i.port || ''}`.toLowerCase().includes(kw))
                             : instances
                         return (
-                            // 实例明细子表 —— pagination={false} 豁免说明：这是**父行（服务）展开后
-                            // 才出现的子表**（父子行可展开的树形表），行数由该服务的实例数决定；
-                            // 加分页条会把「父行 + 展开行」拆到两页，反而看不出实例属于哪个服务。
                             <div>
                                 {/* 子表没有 Card，按 §2 规则 3 兜底：Table 正上方加一行过滤框 */}
                                 <Space style={{marginBottom: 8}}>
@@ -107,7 +104,10 @@ export default function ServiceTable() {
                                         onChange={(e) => setInstanceKeyword(e.target.value)}
                                     />
                                 </Space>
-                                <Table rowKey="key" dataSource={filtered} size="small" pagination={false}
+                                <Table rowKey="key" dataSource={filtered} size="small"
+                                       pagination={false /* §2 规则 2 豁免：这是父行（服务）展开后
+                                           才出现的实例明细子表，行数由该服务的实例数决定；
+                                           加分页条会把「父行 + 展开行」拆到两页，反而看不出实例属于哪个服务 */}
                                        columns={[
                                            {title: '集群', dataIndex: 'cluster', width: 120},
                                            {title: '地址', key: 'addr',
