@@ -12,7 +12,7 @@
     <version>1.0.4</version>
 
     <artifactId>z-rpc-spi</artifactId>
-    <name>z-rpc-spi</name>
+    <name>z-rpc :: spi</name>
     <description>SPI micro-kernel for Z-RPC (ExtensionLoader, @SPI, @Adaptive).</description>
 
     <url>https://github.com/yuku123/z-rpc</url>

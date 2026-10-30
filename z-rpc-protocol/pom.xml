@@ -12,7 +12,7 @@
     <version>1.0.4</version>
 
     <artifactId>z-rpc-protocol</artifactId>
-    <name>z-rpc-protocol</name>
+    <name>z-rpc :: protocol</name>
     <description>Z-RPC private binary protocol with magic number, version, serializer-id and heartbeat.</description>
 
     <url>https://github.com/yuku123/z-rpc</url>

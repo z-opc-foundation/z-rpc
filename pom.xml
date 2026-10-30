@@ -22,8 +22,8 @@
     <artifactId>z-rpc</artifactId>
     <version>1.0.4</version>
     <packaging>pom</packaging>
-    <name>z-rpc (RPC Aggregator)</name>
-    <description>Z-RPC: A high-performance Java RPC framework integrating Dubbo/SOFA-RPC/gRPC best practices.</description>
+    <name>z-rpc :: root</name>
+    <description>Z-RPC: A high-performance Java RPC framework integrating Dubbo/SOFA-RPC/gRPC best practices. / RPC Aggregator</description>
 
     <url>https://github.com/yuku123/z-rpc</url>
     <licenses>

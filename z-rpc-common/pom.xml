@@ -13,7 +13,7 @@
     <version>1.0.4</version>
 
     <artifactId>z-rpc-common</artifactId>
-    <name>z-rpc-common</name>
+    <name>z-rpc :: common</name>
     <description>Common utilities (URL, Node, RpcException, Result) for Z-RPC.</description>
 
     <url>https://github.com/yuku123/z-rpc</url>

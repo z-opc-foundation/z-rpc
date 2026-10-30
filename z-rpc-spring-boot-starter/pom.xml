@@ -12,7 +12,7 @@
     <version>1.0.4</version>
 
     <artifactId>z-rpc-spring-boot-starter</artifactId>
-    <name>z-rpc-spring-boot-starter</name>
+    <name>z-rpc :: spring-boot-starter</name>
     <description>Spring Boot 2.7.x auto-configuration: @ZRpcService, @ZRpcReference, ZRpcProperties.</description>
 
     <url>https://github.com/yuku123/z-rpc</url>

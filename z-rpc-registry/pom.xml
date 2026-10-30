@@ -12,7 +12,7 @@
     <version>1.0.4</version>
 
     <artifactId>z-rpc-registry</artifactId>
-    <name>z-rpc-registry</name>
+    <name>z-rpc :: registry</name>
     <description>Registry center: in-memory, multi-registry, RegistryDirectory.
         (z-config 适配暂时注释,等 z-config 上 Central 后再加回来)</description>
 

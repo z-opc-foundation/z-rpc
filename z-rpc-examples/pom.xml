@@ -13,7 +13,7 @@
     <version>1.0.4</version>
 
     <artifactId>z-rpc-examples</artifactId>
-    <name>z-rpc-examples</name>
+    <name>z-rpc :: examples</name>
     <description>Demo applications: order-service (consumer) calls user-service (provider).</description>
     <packaging>pom</packaging>
 

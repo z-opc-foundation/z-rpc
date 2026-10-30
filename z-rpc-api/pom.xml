@@ -12,7 +12,7 @@
     <version>1.0.4</version>
 
     <artifactId>z-rpc-api</artifactId>
-    <name>z-rpc-api</name>
+    <name>z-rpc :: api</name>
     <description>Core API interfaces (Invoker, Invocation, Protocol, Filter, ProxyFactory) for Z-RPC.</description>
 
     <url>https://github.com/yuku123/z-rpc</url>

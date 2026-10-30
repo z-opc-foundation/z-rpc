@@ -12,7 +12,7 @@
     <version>1.0.4</version>
 
     <artifactId>z-rpc-admin</artifactId>
-    <name>z-rpc-admin</name>
+    <name>z-rpc :: admin</name>
     <description>Z-RPC admin backend: service registry, metrics, tracing, dynamic config REST APIs.</description>
 
     <dependencies>

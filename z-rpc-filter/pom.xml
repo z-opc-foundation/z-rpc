@@ -12,7 +12,7 @@
     <version>1.0.4</version>
 
     <artifactId>z-rpc-filter</artifactId>
-    <name>z-rpc-filter</name>
+    <name>z-rpc :: filter</name>
     <description>Built-in Filter chains (5 consumer + 5 provider) for Z-RPC.</description>
 
     <url>https://github.com/yuku123/z-rpc</url>

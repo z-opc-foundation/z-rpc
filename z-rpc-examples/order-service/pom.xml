@@ -9,7 +9,7 @@
         <version>1.0.0-SNAPSHOT</version>
     </parent>
     <artifactId>order-service</artifactId>
-    <name>order-service</name>
+    <name>order :: service</name>
     <description>Demo Consumer: invokes UserService via Z-RPC.</description>
 
     <dependencies>

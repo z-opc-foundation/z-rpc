@@ -9,7 +9,7 @@
         <version>1.0.4</version>
     </parent>
     <artifactId>z-rpc-core</artifactId>
-    <name>z-rpc-core</name>
+    <name>z-rpc :: core</name>
     <description>Aggregator jar: all Z-RPC sub-modules bundled for convenience.</description>
 
     <url>https://github.com/yuku123/z-rpc</url>

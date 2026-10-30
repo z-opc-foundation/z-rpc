@@ -12,7 +12,7 @@
     <version>1.0.4</version>
 
     <artifactId>z-rpc-cluster</artifactId>
-    <name>z-rpc-cluster</name>
+    <name>z-rpc :: cluster</name>
     <description>Cluster (6 strategies), Router (3 strategies), LoadBalance (5 strategies), Directory.</description>
 
     <url>https://github.com/yuku123/z-rpc</url>

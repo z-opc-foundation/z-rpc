@@ -12,7 +12,7 @@
     <version>1.0.4</version>
 
     <artifactId>z-rpc-async</artifactId>
-    <name>z-rpc-async</name>
+    <name>z-rpc :: async</name>
     <description>Async invocation support (DefaultFuture, AsyncRpcResult, RpcContext).</description>
 
     <url>https://github.com/yuku123/z-rpc</url>

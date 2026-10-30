@@ -9,7 +9,7 @@
         <version>1.0.4</version>
     </parent>
     <artifactId>z-rpc-serialize</artifactId>
-    <name>z-rpc-serialize</name>
+    <name>z-rpc :: serialize</name>
     <description>Multi-codec serialization: Java / JSON / Hessian2 / Kryo / Protobuf.</description>
 
     <url>https://github.com/yuku123/z-rpc</url>
