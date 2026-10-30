@@ -1691,9 +1691,9 @@ cd ~/.cache/zrpc_gauges && python3 r17_norm_tally.py \
 
 | 用例（声明行） | 钉的行为 | 猎物在场的那一句 |
 |---|---|---|
-| `bug_injectionFailureIsSwallowedIntoANullField`（:529） | 一个 bean 里同时放好字段与非接口字段、坏端口字段：`refresh` **不抛**（:539），好字段拿到 JDK 代理（:545、:546），另两个字段是 `null`（:550、:552）；再把被吞掉的那两个错**单独量一遍**：非接口那条 `assertThrows(IllegalStateException.class, …)` 且消息含 `must be an interface`（:559-562），坏端口那条消息含 `notaport` 或整条 url（:563-566） | :545 —— 同一台容器、同一个 bean、同一次字段遍历，好字段若非代理，后面两句 `assertNull` 就全是空跑 |
-| `bug_swallowedFailureLeavesNoProgrammaticTrace`（:571） | 被吞掉的失败对调用方**零可编程痕迹**：实例字段集合恰为 `{applicationContext, registeredBeanNames}`（:580-582）、没有任何 `fail`/`error`/`last`/`pending` 形状的方法名（:583-591）、`postProcessPropertyValues` 原样返回传进去的那一份 `pvs`（:606-608） | :609 与 :610 —— `assertNull(bean.notInterface)` + `assertNotNull(bean.good)`，证明"这次确实失败了一次"而不是"根本没跑" |
-| `bug_secondFieldOfSameTypeKeepsAProxyTheContainerNeverSees`（:615） | 同接口两个字段的登记名冲突：两支各拿一个不同代理（:631），而 `registerAsBean` 按接口全名去重 ⇒ 容器里只有第一个（:635），按类型数得出 1 个（:637），`getBean(Alpha.class)` 拿到的是第一个而不是第二个（:639） | :629 与 :630 —— 先证两支都注入成功，"第二个在容器里看不见"才是结论而不是没跑 |
+| `bug_injectionFailureIsSwallowedIntoANullField`（:526） | 一个 bean 里同时放好字段与非接口字段、坏端口字段：`refresh` **不抛**（:539），好字段拿到 JDK 代理（:545、:546），另两个字段是 `null`（:550、:552）；再把被吞掉的那两个错**单独量一遍**：非接口那条 `assertThrows(IllegalStateException.class, …)` 且消息含 `must be an interface`（:559-562），坏端口那条消息含 `notaport` 或整条 url（:563-566） | :545 —— 同一台容器、同一个 bean、同一次字段遍历，好字段若非代理，后面两句 `assertNull` 就全是空跑 |
+| `bug_swallowedFailureLeavesNoProgrammaticTrace`（:568） | 被吞掉的失败对调用方**零可编程痕迹**：实例字段集合恰为 `{applicationContext, registeredBeanNames}`（:580-582）、没有任何 `fail`/`error`/`last`/`pending` 形状的方法名（:583-591）、`postProcessPropertyValues` 原样返回传进去的那一份 `pvs`（:606-608） | :609 与 :610 —— `assertNull(bean.notInterface)` + `assertNotNull(bean.good)`，证明"这次确实失败了一次"而不是"根本没跑" |
+| `bug_secondFieldOfSameTypeKeepsAProxyTheContainerNeverSees`（:611） | 同接口两个字段的登记名冲突：两支各拿一个不同代理（:631），而 `registerAsBean` 按接口全名去重 ⇒ 容器里只有第一个（:635），按类型数得出 1 个（:637），`getBean(Alpha.class)` 拿到的是第一个而不是第二个（:639） | :629 与 :630 —— 先证两支都注入成功，"第二个在容器里看不见"才是结论而不是没跑 |
 
 **为什么这三条不是"给静默补个断言"**：第一条的量错面是"吞掉的到底是什么错"，我用 `assertThrows` 在外面又量了一次，所以它对 `catch` 的存在与对 `checkConfig`/`URL.valueOf` 的行为**同时**敏感；第二条是**结构性守卫**（字段与方法名集合），它会在有人真的去补失败记录时红 —— 那种红是好消息，用例消息里就写着"出现了一个能把失败说给调用方听的方法，本用例的结论要翻"；第三条钉的是一个能被 `@Autowired` 直接踩到的后果，不是日志。
 

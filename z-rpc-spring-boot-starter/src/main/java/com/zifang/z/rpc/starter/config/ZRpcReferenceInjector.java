@@ -15,8 +15,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.ReflectionUtils;
 
 import java.beans.PropertyDescriptor;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
+import java.lang.reflect.Field;import java.lang.reflect.Method;
 
 /**
  * Z-RPC 引用注入器
@@ -40,7 +39,9 @@ public class ZRpcReferenceInjector implements InstantiationAwareBeanPostProcesso
     }
 
     @Override
-    public PropertyValues postProcessPropertyValues(PropertyValues pvs, PropertyDescriptor[] pds, Object bean, String beanName) throws BeansException {
+    public PropertyValues postProcessProperties(PropertyValues pvs, Object bean, String beanName) {
+        // Spring 6（SB3）起 postProcessPropertyValues(PropertyValues, PropertyDescriptor[], ...) 已删除，
+        // 统一走 postProcessProperties(PropertyValues, Object, String)。
         Class<?> targetClass = bean.getClass();
         ReflectionUtils.doWithFields(targetClass, field -> injectField(field, bean));
         return pvs;

@@ -77,7 +77,7 @@
 
 ```
 z-rpc/
-├── pom.xml                          # 聚合 pom：parent=z-boot-parent:1.1.0、version=1.0.4、flatten 常开
+├── pom.xml                          # 聚合 pom：parent=z-boot-parent:1.2.0、version=1.0.4、flatten 常开
 ├── z-rpc-common/                    # URL / Node / RpcException / RpcConstants / ProtocolConstants（Result 在 z-rpc-api）
 ├── z-rpc-spi/                       # @SPI / @Adaptive / @Activate / ExtensionLoader / ExtensionFactory（+ 两个 factory 实现）
 ├── z-rpc-api/                       # Invoker / Invocation / RpcInvocation / Result / Filter / Protocol / ProxyFactory 接口 + JdkProxyFactory + Exporter + Listener
@@ -160,10 +160,10 @@ z-rpc/
 mvn -B clean install -DskipTests
 ```
 
-第三方版本走父链：`z-boot-parent:1.1.0`（第三方地板与兄弟仓权威表均已并入 parent 自身）。
+第三方版本走父链：`z-boot-parent:1.2.0`（第三方地板与兄弟仓权威表均已并入 parent 自身）。
 本仓 `<properties>` 只保留五格自钉：`compile.version` / `hessian.version` / `kryo.version` / `log4j.version` / `junit.version`；
 其余（netty / spring-boot / z-util / protobuf / slf4j / jackson）由父链下发。
-若构建报找不到 parent，先确认本地/镜像能解析到 `io.github.yuku123:z-boot-parent:1.1.0`。
+若构建报找不到 parent，先确认本地/镜像能解析到 `io.github.yuku123:z-boot-parent:1.2.0`。
 
 ### 5 分钟接入：Spring Boot 注解驱动（最常见）
 

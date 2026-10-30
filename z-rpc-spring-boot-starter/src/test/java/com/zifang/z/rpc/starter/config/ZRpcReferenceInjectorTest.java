@@ -270,8 +270,7 @@ class ZRpcReferenceInjectorTest {
         final FullConsumer failing = new FullConsumer(); // url = zrpc://127.0.0.1:1，必然连不上
 
         Object injected = callWithDeadline(() -> {
-            injector.postProcessPropertyValues(new MutablePropertyValues(),
-                    new java.beans.PropertyDescriptor[0], failing, "fullConsumer");
+            injector.postProcessProperties(new MutablePropertyValues(), failing, "fullConsumer");
             return null;
         });
         assertNull(injected, "注入过程本身不应返回异常对象: " + injected);
@@ -319,8 +318,7 @@ class ZRpcReferenceInjectorTest {
             injector.setApplicationContext(ctx);
             final MismatchedConsumer bean = new MismatchedConsumer();
             Object outcome = callWithDeadline(() -> {
-                injector.postProcessPropertyValues(new MutablePropertyValues(),
-                        new java.beans.PropertyDescriptor[0], bean, "mismatchedConsumer");
+                injector.postProcessProperties(new MutablePropertyValues(), bean, "mismatchedConsumer");
                 return null;
             });
             assertNull(outcome, "注入过程本身不应返回异常对象: " + outcome);
@@ -354,9 +352,8 @@ class ZRpcReferenceInjectorTest {
             String keepMe = "original";
         }
         Holder holder = new Holder();
-        PropertyValues out = injector.postProcessPropertyValues(
-                new MutablePropertyValues(), new java.beans.PropertyDescriptor[0],
-                holder, "holder");
+        PropertyValues out = injector.postProcessProperties(
+                new MutablePropertyValues(), holder, "holder");
         assertNotNull(out);
         assertEquals("original", holder.keepMe);
     }
@@ -473,11 +470,11 @@ class ZRpcReferenceInjectorTest {
         Method[] methods = ZRpcReferenceInjector.class.getDeclaredMethods();
         boolean overridesDeprecated = false;
         for (Method m : methods) {
-            if ("postProcessPropertyValues".equals(m.getName())) {
+            if ("postProcessProperties".equals(m.getName())) {
                 overridesDeprecated = true;
             }
         }
-        assertTrue(overridesDeprecated, "postProcessPropertyValues 未被覆写 => 注入根本不会发生");
+        assertTrue(overridesDeprecated, "postProcessProperties 未被覆写 => 注入根本不会发生");
     }
 
     // ================= 注入失败那一支：catch 里只有一行 log.error（第 22 轮，M6 族） =================
@@ -597,14 +594,13 @@ class ZRpcReferenceInjectorTest {
         final MixedConsumer bean = new MixedConsumer();
         Object outcome = callWithDeadline(() -> {
             try {
-                return injector.postProcessPropertyValues(pvs, new java.beans.PropertyDescriptor[0],
-                        bean, "mixedConsumer");
+                return injector.postProcessProperties(pvs, bean, "mixedConsumer");
             } catch (Throwable t) {
                 return t;
             }
         });
         assertTrue(outcome instanceof PropertyValues,
-                "postProcessPropertyValues 应当正常返回，实际: " + outcome);
+                "postProcessProperties 应当正常返回，实际: " + outcome);
         assertSame(pvs, outcome, "返回值必须是传进去的那一份 pvs：它既不改属性也不带失败标记");
         assertNull(bean.notInterface, "prey：这一次注入确实失败了（否则上面那两句是空跑）");
         assertNotNull(bean.good, "prey：同一个 bean 里有字段注入成功");

@@ -72,24 +72,18 @@ class AutoConfigurationMetadataTest {
     }
 
     @Test
-    @DisplayName("spring.factories 必须用 EnableAutoConfiguration= 作为 key（老 Boot 只认这份）")
+    @DisplayName("spring.factories 不得再携带 EnableAutoConfiguration 键（2026-10-30 SB3 火车：注册只走 AutoConfiguration.imports）")
     void springFactoriesCarriesTheAutoConfigurationKey() throws Exception {
-        List<String> lines = readClasspathLines("META-INF/spring.factories");
-        assertFalse(lines.isEmpty(), "spring.factories 应当存在（文件在，才有脸谈格式）");
-
-        boolean hasAutoConfigKey = false;
-        for (String line : lines) {
-            if (line.startsWith("org.springframework.boot.autoconfigure.EnableAutoConfiguration")) {
-                hasAutoConfigKey = true;
-            }
+        List<String> lines;
+        try {
+            lines = readClasspathLines("META-INF/spring.factories");
+        } catch (Exception e) {
+            return; // 文件不存在 = 最好：注册已全量迁到 imports
         }
-        // Spring Boot 2.x 的 SpringFactoriesLoader 按 properties 解析：
-        // 裸类名没有 key，会被整行丢弃 => 只认 spring.factories 的老版本 Boot 发现不了自动装配。
-        assertTrue(hasAutoConfigKey,
-                "spring.factories 内容 = " + lines + "；缺少 EnableAutoConfiguration= 前缀");
-        assertTrue(lines.contains(ZRpcAutoConfiguration.class.getName())
-                        || lines.contains(ZRpcAutoConfiguration.class.getName() + "\\"),
-                "key 的价值里必须真的挂着装配类: " + lines);
+        for (String line : lines) {
+            assertFalse(line.startsWith("org.springframework.boot.autoconfigure.EnableAutoConfiguration"),
+                    "spring.factories 里不应再有 EnableAutoConfiguration 键（SB3 不认），内容 = " + lines);
+        }
     }
 
     @Test
