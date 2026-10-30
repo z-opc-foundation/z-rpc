@@ -107,7 +107,7 @@
                reversion=1.0.1              → 全仓 0 处引用的死键，且与仓版本 1.0.3 自相矛盾 -->
         <!-- ⚠ compile.version 留着：父链没有这一格（它下发的是 maven.compiler.source/target），
              而下面 maven-compiler-plugin 的 <source>/<target> 用的就是它。删键=当场悬空。 -->
-        <compile.version>8</compile.version>
+        <compile.version>17</compile.version>
         <!-- 序列化两格：地板里 hessian / kryo 各 0 条，父链完全没供给。 -->
         <hessian.version>4.0.66</hessian.version>
         <kryo.version>5.5.0</kryo.version>
