@@ -262,22 +262,22 @@
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-annotations</artifactId>
-                <version>2.18.9</version>
+                <version>2.18.11</version>
             </dependency>
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-core</artifactId>
-                <version>2.18.9</version>
+                <version>2.18.11</version>
             </dependency>
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-databind</artifactId>
-                <version>2.18.9</version>
+                <version>2.18.11</version>
             </dependency>
             <dependency>
                 <groupId>com.fasterxml.jackson.datatype</groupId>
                 <artifactId>jackson-datatype-jsr310</artifactId>
-                <version>2.18.9</version>
+                <version>2.18.11</version>
             </dependency>
             <!-- junit 六格：地板 junit-bom 5.9.3 会把 api/engine/params 与 platform 一并抬走，
                  换测试框架版本会动用例发现与计数 ⇒ 钉住基线（5.8.2 配的 platform 是 1.8.2）。
