@@ -116,7 +116,7 @@
              不是"随手沿用旧值"，是零漂移——抬 log4j 要连 Java 8 字节码与配置兼容一起验，不在迁移这一刀里顺手做。
              ⚠ 地板那几条是**直接** DM 条目，本仓的 import（这里没有 import）顶不过继承来的直接条目，
              所以只能也按坐标逐条写直接条目，见 README 步骤 5。 -->
-        <log4j.version>2.17.2</log4j.version>
+        <log4j.version>2.26.1</log4j.version>
         <!-- junit 5.8.2：地板 import 的 junit-bom 是 5.9.3（junit-platform 1.9.3）。换测试框架版本
              会动到用例的发现与计数，不在迁移里顺手换 ⇒ 按坐标钉住基线。 -->
         <junit.version>5.8.2</junit.version>
