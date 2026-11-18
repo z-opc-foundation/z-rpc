@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import {safeEmptyOutDir} from '../build-tools/safe-vite-plugin.mjs'
+import {safeEmptyOutDir} from '../build-tools/safe-vite-plugin.ts'
 
 // https://vitejs.dev/config/
 export default defineConfig({

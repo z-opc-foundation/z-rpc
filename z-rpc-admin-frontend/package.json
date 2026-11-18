@@ -11,27 +11,29 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
+    "@ant-design/icons": "^6.1.0",
     "@yuku123/z-frontend-common": "^1.1.2",
+    "antd": "^6.3.3",
+    "axios": "^1.7.7",
+    "dayjs": "^1.11.13",
+    "echarts": "^6.1.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.1",
-    "antd": "^6.3.3",
-    "@ant-design/icons": "^6.1.0",
-    "axios": "^1.7.7",
-    "echarts": "^6.1.0",
-    "dayjs": "^1.11.13",
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@types/node": "^20.19.43",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@vitejs/plugin-react": "^4.3.1",
+    "@vitejs/plugin-react": "^5.1.4",
     "typescript": "^5.5.4",
-    "vite": "^5.4.6"
+    "vite": "^6.4.6"
   },
   "overrides": {
     "follow-redirects": "^1.16.2",
-    "esbuild": "^0.25.0",
-    "echarts": "^6.1.0"
+    "echarts": "^6.1.0",
+    "tinypool": "^2.1.2",
+    "react-router": "^7.18.2"
   }
 }

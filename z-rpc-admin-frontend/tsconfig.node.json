@@ -5,7 +5,28 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
-    "strict": true
+    "allowImportingTsExtensions": true,
+    "strict": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "./node_modules/.tmp/tsconfig.node",
+    "rootDir": "..",
+    "types": [
+      "node"
+    ],
+    "baseUrl": ".",
+    "paths": {
+      "vite": [
+        "./node_modules/vite"
+      ],
+      "vite/*": [
+        "./node_modules/vite/*"
+      ]
+    },
+    "noEmitOnError": true
   },
-  "include": ["vite.config.ts"]
+  "include": [
+    "vite.config.ts",
+    "../build-tools/**/*.ts"
+  ]
 }
