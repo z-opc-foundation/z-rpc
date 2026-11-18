@@ -17,7 +17,7 @@
 | **仓库** | `z-rpc`（GitHub `yuku123/z-rpc`） |
 | **Maven 坐标** | 聚合 pom `io.github.yuku123:z-rpc`，14 个 jar 子模块同版本 |
 | **当前版本** | `1.0.4`（根 pom `<version>`；812743d 由 1.0.3 抬到 1.0.4，属 1.0.19 批量发布） |
-| **父项目** | `io.github.yuku123:z-boot-parent:1.0.21`（`<relativePath/>` 留空，parent 在 repo1；ab6941f 迁入 1.0.19、5dbae8d 抬到 1.0.21；本仓**原先没有 `<parent>`**，是根 pom 自包含） |
+| **父项目** | `io.github.yuku123:z-boot-parent:1.2.4`（`<relativePath/>` 留空，parent 在 repo1；ab6941f 迁入 1.0.19、5dbae8d 抬到 1.0.21；本仓**原先没有 `<parent>`**，是根 pom 自包含） |
 | **Maven Central** | 已发布：聚合 pom + 14 个 jar 模块的 `1.0.4` 逐个 `curl` repo1 全部 200；`z-rpc-examples` / `z-rpc-admin` 不在 reactor、也不在 Central（1.0.3 / 1.0.4 均 404） |
 | **默认端口** | RPC 服务端 `20880`（`z.rpc.server.port`，Netty）；示例 HTTP `20881` / `20890`；admin HTTP `19090`；admin-frontend `5173` |
 | **运行口径** | Java 8（`compile.version=8`）· Spring Boot 2.7.18 · Netty 4.1.138.Final · log4j2 2.17.2（本仓按坐标钉住） |
@@ -77,7 +77,7 @@
 
 ```
 z-rpc/
-├── pom.xml                          # 聚合 pom：parent=z-boot-parent:1.2.2、version=1.0.4、flatten 常开
+├── pom.xml                          # 聚合 pom：parent=z-boot-parent:1.2.4、version=1.0.4、flatten 常开
 ├── z-rpc-common/                    # URL / Node / RpcException / RpcConstants / ProtocolConstants（Result 在 z-rpc-api）
 ├── z-rpc-spi/                       # @SPI / @Adaptive / @Activate / ExtensionLoader / ExtensionFactory（+ 两个 factory 实现）
 ├── z-rpc-api/                       # Invoker / Invocation / RpcInvocation / Result / Filter / Protocol / ProxyFactory 接口 + JdkProxyFactory + Exporter + Listener
@@ -160,10 +160,10 @@ z-rpc/
 mvn -B clean install -DskipTests
 ```
 
-第三方版本走父链：`z-boot-parent:1.2.2`（第三方地板与兄弟仓权威表均已并入 parent 自身）。
+第三方版本走父链：`z-boot-parent:1.2.4`（第三方地板与兄弟仓权威表均已并入 parent 自身）。
 本仓 `<properties>` 只保留五格自钉：`compile.version` / `hessian.version` / `kryo.version` / `log4j.version` / `junit.version`；
 其余（netty / spring-boot / z-util / protobuf / slf4j / jackson）由父链下发。
-若构建报找不到 parent，先确认本地/镜像能解析到 `io.github.yuku123:z-boot-parent:1.2.2`。
+若构建报找不到 parent，先确认本地/镜像能解析到 `io.github.yuku123:z-boot-parent:1.2.4`。
 
 ### 5 分钟接入：Spring Boot 注解驱动（最常见）
 
