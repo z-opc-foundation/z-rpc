@@ -91,6 +91,7 @@
     </modules>
 
     <properties>
+        <z-meta.version>1.0.2</z-meta.version>
         <!-- 删掉的键（parent_preflight 对 z-rpc 的第 2/5 节按**坐标**判过，面值与父链逐字相同 ⇒
              键与引用它的 <version> 一起删，改由父链下发）：
                netty.version=4.1.138.Final  → 地板 import io.netty:netty-bom 同值（基线 tree 32 件 io.netty 一件没动）
@@ -311,6 +312,11 @@
                 <groupId>org.junit.platform</groupId>
                 <artifactId>junit-platform-engine</artifactId>
                 <version>1.8.2</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.yuku123</groupId>
+                <artifactId>z-meta-api</artifactId>
+                <version>${z-meta.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

@@ -1,5 +1,8 @@
 package com.zifang.z.rpc.admin.controller;
 
+import com.zifang.z.meta.api.annotation.BizApi;
+import com.zifang.z.meta.api.annotation.BizField;
+import com.zifang.z.meta.api.annotation.BizParam;
 import com.zifang.z.rpc.admin.model.MetricsPushRequest;
 import com.zifang.z.rpc.admin.model.ProviderVO;
 import com.zifang.z.rpc.admin.service.MetricsStorageService;
@@ -29,6 +32,7 @@ public class AdminController {
      * 全局概览
      */
     @GetMapping("/dashboard/overview")
+    @BizApi(summary = "全局概览", tags = { "z-rpc" })
     public Map<String, Object> dashboardOverview() {
         return storage.dashboardOverview();
     }
@@ -37,8 +41,10 @@ public class AdminController {
      * 服务列表
      */
     @GetMapping("/services")
+    @BizApi(summary = "服务列表", tags = { "z-rpc" })
     public List<com.zifang.z.rpc.admin.model.ServiceVO> listServices(
-            @RequestParam(required = false) String keyword) {
+            @RequestParam(required = false)
+            @BizParam(name = "keyword", type = BizField.FieldType.STRING, description = "", position = BizParam.Position.QUERY) String keyword) {
         List<com.zifang.z.rpc.admin.model.ServiceVO> all = storage.listServices();
         if (keyword != null && !keyword.isEmpty()) {
             return all.stream()
@@ -52,7 +58,8 @@ public class AdminController {
      * 服务详情
      */
     @GetMapping("/services/{serviceKey}")
-    public Map<String, Object> serviceDetail(@PathVariable String serviceKey) {
+    @BizApi(summary = "服务详情", tags = { "z-rpc" })
+    public Map<String, Object> serviceDetail(@PathVariable @BizParam(name = "serviceKey", type = BizField.FieldType.STRING, description = "", position = BizParam.Position.PATH) String serviceKey) {
         Map<String, Object> detail = new HashMap<>();
         detail.put("providers", storage.listProvidersByService(serviceKey));
         detail.put("metrics", storage.getMetricsHistory(serviceKey));
@@ -63,6 +70,7 @@ public class AdminController {
      * Provider 列表
      */
     @GetMapping("/providers")
+    @BizApi(summary = "Provider 列表", tags = { "z-rpc" })
     public List<ProviderVO> listProviders() {
         return storage.listProviders();
     }
@@ -71,7 +79,8 @@ public class AdminController {
      * 指标时序
      */
     @GetMapping("/services/{serviceKey}/metrics")
-    public Map<String, List<MetricsStorageService.MetricsPoint>> getMetrics(@PathVariable String serviceKey) {
+    @BizApi(summary = "指标时序", tags = { "z-rpc" })
+    public Map<String, List<MetricsStorageService.MetricsPoint>> getMetrics(@PathVariable @BizParam(name = "serviceKey", type = BizField.FieldType.STRING, description = "", position = BizParam.Position.PATH) String serviceKey) {
         return storage.getMetricsHistory(serviceKey);
     }
 
@@ -79,6 +88,7 @@ public class AdminController {
      * 链路追踪列表
      */
     @GetMapping("/traces")
+    @BizApi(summary = "链路追踪列表", tags = { "z-rpc" })
     public List<MetricsStorageService.TraceRecord> listTraces() {
         return storage.listTraces();
     }
@@ -87,7 +97,8 @@ public class AdminController {
      * 接收 Provider 上报的指标
      */
     @PostMapping("/metrics/push")
-    public ResponseEntity<Map<String, Object>> pushMetrics(@RequestBody MetricsPushRequest request) {
+    @BizApi(summary = "接收 Provider 上报的指标", tags = { "z-rpc" })
+    public ResponseEntity<Map<String, Object>> pushMetrics(@RequestBody @BizParam(name = "request", type = BizField.FieldType.STRING, description = "", position = BizParam.Position.BODY) MetricsPushRequest request) {
         try {
             storage.recordMetrics(request);
             return ResponseEntity.ok(success("Metrics received"));
@@ -101,7 +112,8 @@ public class AdminController {
      * Provider 注册
      */
     @PostMapping("/providers/register")
-    public ResponseEntity<Map<String, Object>> registerProvider(@RequestBody ProviderVO provider) {
+    @BizApi(summary = "Provider 注册", tags = { "z-rpc" })
+    public ResponseEntity<Map<String, Object>> registerProvider(@RequestBody @BizParam(name = "provider", type = BizField.FieldType.STRING, description = "", position = BizParam.Position.BODY) ProviderVO provider) {
         try {
             storage.recordProvider(provider);
             return ResponseEntity.ok(success("Provider registered: " + provider.getId()));
@@ -125,3 +137,6 @@ public class AdminController {
         return r;
     }
 }
+
+
+

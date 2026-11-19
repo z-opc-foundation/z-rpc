@@ -2,6 +2,7 @@ package com.zifang.demo.user.impl;
 
 import com.zifang.demo.user.api.UserDTO;
 import com.zifang.demo.user.api.UserService;
+import com.zifang.z.meta.api.annotation.BizMethod;
 import com.zifang.z.rpc.annotation.ZRpcService;
 import org.springframework.stereotype.Service;
 
@@ -28,16 +29,19 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @BizMethod(name = "getUser", module = "z-rpc", description = "", operation = BizMethod.Operation.QUERY)
     public UserDTO getUser(Long id) {
         return userMap.get(id);
     }
 
     @Override
+    @BizMethod(name = "listUsers", module = "z-rpc", description = "", operation = BizMethod.Operation.QUERY)
     public List<UserDTO> listUsers() {
         return new ArrayList<>(userMap.values());
     }
 
     @Override
+    @BizMethod(name = "createUser", module = "z-rpc", description = "", operation = BizMethod.Operation.CREATE)
     public UserDTO createUser(String name, String email, Integer age) {
         Long id = idGen.incrementAndGet();
         UserDTO user = new UserDTO(id, name, email, age);
@@ -45,3 +49,6 @@ public class UserServiceImpl implements UserService {
         return user;
     }
 }
+
+
+

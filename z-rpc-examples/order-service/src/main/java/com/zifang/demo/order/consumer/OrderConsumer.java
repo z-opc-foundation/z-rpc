@@ -3,6 +3,7 @@ package com.zifang.demo.order.consumer;
 import com.zifang.demo.order.api.OrderDTO;
 import com.zifang.demo.user.api.UserDTO;
 import com.zifang.demo.user.api.UserService;
+import com.zifang.z.meta.api.annotation.BizMethod;
 import com.zifang.z.rpc.annotation.ZRpcReference;
 import org.springframework.stereotype.Service;
 
@@ -26,6 +27,7 @@ public class OrderConsumer {
     /**
      * 创建订单（远程调用 user-service）
      */
+    @BizMethod(name = "创建订单（远程调用 user-service）", module = "z-rpc", description = "创建订单（远程调用 user-service）", operation = BizMethod.Operation.CREATE)
     public OrderDTO createOrder(Long userId, BigDecimal amount) {
         // RPC 调用获取用户信息
         UserDTO user = userService.getUser(userId);
@@ -44,7 +46,11 @@ public class OrderConsumer {
         return order;
     }
 
+    @BizMethod(name = "queryUser", module = "z-rpc", description = "", operation = BizMethod.Operation.QUERY)
     public UserDTO queryUser(Long userId) {
         return userService.getUser(userId);
     }
 }
+
+
+

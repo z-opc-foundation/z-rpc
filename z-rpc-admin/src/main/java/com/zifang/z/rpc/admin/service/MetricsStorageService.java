@@ -1,5 +1,6 @@
 package com.zifang.z.rpc.admin.service;
 
+import com.zifang.z.meta.api.annotation.BizMethod;
 import com.zifang.z.rpc.admin.model.MetricsPushRequest;
 import com.zifang.z.rpc.admin.model.ProviderVO;
 import com.zifang.z.rpc.admin.model.ServiceVO;
@@ -50,6 +51,7 @@ public class MetricsStorageService {
     /** 链路追踪 */
     private final List<TraceRecord> traces = Collections.synchronizedList(new ArrayList<>());
 
+    @BizMethod(name = "recordProvider", module = "z-rpc", description = "", operation = BizMethod.Operation.ACTION)
     public void recordProvider(ProviderVO provider) {
         providers.put(provider.getId(), provider);
         ServiceRegistry registry = services.computeIfAbsent(provider.getService(), k -> new ServiceRegistry());
@@ -60,6 +62,7 @@ public class MetricsStorageService {
         log.info("Provider registered: {} -> {}", provider.getId(), provider.getAddress());
     }
 
+    @BizMethod(name = "recordMetrics", module = "z-rpc", description = "", operation = BizMethod.Operation.ACTION)
     public void recordMetrics(MetricsPushRequest request) {
         if (request == null || request.getMetrics() == null) return;
         long now = System.currentTimeMillis();
@@ -79,6 +82,7 @@ public class MetricsStorageService {
         }
     }
 
+    @BizMethod(name = "listServices", module = "z-rpc", description = "", operation = BizMethod.Operation.QUERY)
     public List<ServiceVO> listServices() {
         List<ServiceVO> result = new ArrayList<>();
         services.forEach((serviceKey, registry) -> {
@@ -102,16 +106,19 @@ public class MetricsStorageService {
         return result;
     }
 
+    @BizMethod(name = "listProviders", module = "z-rpc", description = "", operation = BizMethod.Operation.QUERY)
     public List<ProviderVO> listProviders() {
         return new ArrayList<>(providers.values());
     }
 
+    @BizMethod(name = "listProvidersByService", module = "z-rpc", description = "", operation = BizMethod.Operation.QUERY)
     public List<ProviderVO> listProvidersByService(String serviceKey) {
         ServiceRegistry reg = services.get(serviceKey);
         if (reg == null) return new ArrayList<>();
         return new ArrayList<>(reg.providers);
     }
 
+    @BizMethod(name = "getMetricsHistory", module = "z-rpc", description = "", operation = BizMethod.Operation.QUERY)
     public Map<String, List<MetricsPoint>> getMetricsHistory(String serviceKey) {
         Map<String, List<MetricsPoint>> result = new HashMap<>();
         metricsHistory.forEach((key, value) -> {
@@ -124,6 +131,7 @@ public class MetricsStorageService {
         return result;
     }
 
+    @BizMethod(name = "addTrace", module = "z-rpc", description = "", operation = BizMethod.Operation.CREATE)
     public void addTrace(TraceRecord trace) {
         traces.add(trace);
         if (traces.size() > 1000) {
@@ -131,10 +139,12 @@ public class MetricsStorageService {
         }
     }
 
+    @BizMethod(name = "listTraces", module = "z-rpc", description = "", operation = BizMethod.Operation.QUERY)
     public List<TraceRecord> listTraces() {
         return new ArrayList<>(traces);
     }
 
+    @BizMethod(name = "dashboardOverview", module = "z-rpc", description = "", operation = BizMethod.Operation.ACTION)
     public Map<String, Object> dashboardOverview() {
         Map<String, Object> overview = new HashMap<>();
         overview.put("serviceCount", services.size());
@@ -212,3 +222,6 @@ public class MetricsStorageService {
         public void setRemoteAddress(String remoteAddress) { this.remoteAddress = remoteAddress; }
     }
 }
+
+
+
